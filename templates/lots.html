@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ t.lots }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
+        <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.lots }}</h1>
+        <p class="mt-2 text-sm text-slate-500">{{ t.lots_description }}</p>
+      </div>
+      <a href="/catches" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">{{ t.record_catch }}</a>
+    </header>
+
+    <section class="space-y-4">
+      <form method="get" action="/lots" role="search" class="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row">
+        <label for="lot-search" class="sr-only">{{ t.search_lots }}</label>
+        <input
+          id="lot-search"
+          name="q"
+          type="search"
+          maxlength="100"
+          value="{{ query }}"
+          placeholder="{{ t.search_lots }}"
+          class="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 px-4 text-sm text-[#122B46] outline-none transition placeholder:text-slate-400 focus:border-[#267F82] focus:ring-4 focus:ring-[#267F82]/10"
+        >
+        <input type="hidden" name="lang" value="{{ language }}">
+        <button type="submit" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#122B46] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#267F82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82] focus-visible:ring-offset-2">{{ t.search }}</button>
+        {% if query %}
+          <a href="/lots?lang={{ language }}" class="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-[#F1F8FF]">{{ t.clear_search }}</a>
+        {% endif %}
+      </form>
+
+      {% set lot_columns = [
+        {"key": "lot_id", "label": t.lot_id, "cell_class": "font-semibold text-[#122B46]"},
+        {"key": "species", "label": t.species},
+        {"key": "weight", "label": t.weight},
+        {"key": "status", "label": t.status},
+        {"key": "trace_url", "label": t.trace, "kind": "link", "link_text": t.trace, "cell_class": "font-semibold"},
+        {"key": "detail_url", "label": t.manage, "kind": "link", "link_text": t.open_forms, "cell_class": "font-semibold"}
+      ] %}
+      {{ data_table(lot_columns, lots, caption=t.lots_caption, empty_message=t.no_lots, extra_classes="") }}
+    </section>
+  </div>
+{% endblock %}

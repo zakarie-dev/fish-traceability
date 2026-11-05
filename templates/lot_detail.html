@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}{{ lot.lot_code }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-6xl space-y-6">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold text-[#267F82]">Lot management</p>
+        <h1 class="mt-1 break-all text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ lot.lot_code }}</h1>
+        <p class="mt-2 text-sm text-slate-600">{{ species_name }} · {{ lot.current_weight }} kg · {{ lot.status }}</p>
+      </div>
+      <a href="/trace/{{ lot.lot_code }}" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-[#267F82]/40 bg-white px-4 py-2 text-sm font-semibold text-[#267F82] transition hover:bg-[#F1F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82]">View trace</a>
+    </header>
+
+    {% if error %}
+      <div role="alert" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ error }}</div>
+    {% endif %}
+    {% if success == "split" %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Lot split successfully.</div>
+    {% elif success == "temperature" %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Temperature observation logged.</div>
+    {% elif success == "inspection" %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Inspection saved successfully.</div>
+    {% endif %}
+
+    {% set form_data = form_data or {} %}
+    <section aria-label="Lot actions" class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+      <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="mb-5">
+          <h2 class="text-lg font-bold text-[#122B46]">Split lot</h2>
+          <p class="mt-1 text-sm text-slate-600">Enter child weights separated by commas. Child weights plus loss must equal the current lot weight.</p>
+        </div>
+        <form method="POST" action="/lots/{{ lot.id }}/split" class="space-y-4">
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Child weights (kg)
+            <textarea name="child_weights" rows="3" required placeholder="e.g. 12.50, 7.25" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">{{ form_data.get('child_weights', '') }}</textarea>
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Loss (kg)
+            <input name="loss_weight" type="number" min="0" step="0.01" value="{{ form_data.get('loss_weight', '0') }}" required inputmode="decimal" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Loss reason <span class="font-normal text-slate-500">(required above 5%)</span>
+            <input name="loss_reason" type="text" maxlength="500" value="{{ form_data.get('loss_reason', '') }}" placeholder="Explain unusually high loss" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Split lot</button>
+        </form>
+      </article>
+
+      <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="mb-5">
+          <h2 class="text-lg font-bold text-[#122B46]">Log temperature</h2>
+          <p class="mt-1 text-sm text-slate-600">Record a temperature observation and where it was measured.</p>
+        </div>
+        <form method="POST" action="/lots/{{ lot.id }}/temperatures" class="space-y-4">
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Temperature (°C)
+            <input name="temp_celsius" type="number" min="-999.99" max="999.99" step="0.01" required value="{{ form_data.get('temp_celsius', '') }}" inputmode="decimal" placeholder="e.g. -2.50" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Location
+            <input name="location" type="text" maxlength="255" required value="{{ form_data.get('location', '') }}" placeholder="e.g. Cold storage" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <p class="rounded-lg bg-[#F1F8FF] px-3 py-2 text-xs leading-5 text-[#122B46]">The observation is recorded for traceability. No breach threshold is configured by this form.</p>
+          <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save temperature</button>
+        </form>
+      </article>
+
+      <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="mb-5">
+          <h2 class="text-lg font-bold text-[#122B46]">Inspect lot</h2>
+          <p class="mt-1 text-sm text-slate-600">Record the inspection outcome, grade, and responsible inspector.</p>
+        </div>
+        <form method="POST" action="/lots/{{ lot.id }}/inspections" class="space-y-4">
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Result
+            <select name="result" required class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+              <option value="">Choose pass or fail</option>
+              <option value="pass" {% if form_data.get('result') == 'pass' %}selected{% endif %}>Pass</option>
+              <option value="fail" {% if form_data.get('result') == 'fail' %}selected{% endif %}>Fail</option>
+            </select>
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Grade
+            <select name="grade" required class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+              <option value="">Choose a grade</option>
+              {% for grade in ["A", "B", "C"] %}
+                <option value="{{ grade }}" {% if form_data.get('grade') == grade %}selected{% endif %}>{{ grade }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Inspector
+            <select name="inspector_id" required class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+              <option value="">Select an inspector</option>
+              {% for inspector in inspectors %}
+                <option value="{{ inspector.id }}" {% if form_data.get('inspector_id') == inspector.id|string %}selected{% endif %}>{{ inspector.email }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save inspection</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-200 bg-[#F1F8FF] px-5 py-4">
+          <h2 class="font-semibold text-[#122B46]">Temperature history</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[480px] text-left text-sm">
+            <thead class="text-xs uppercase tracking-wide text-slate-500">
+              <tr><th class="px-5 py-3">Recorded</th><th class="px-5 py-3">Temperature</th><th class="px-5 py-3">Location</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for log in temperature_logs %}
+                <tr>
+                  <td class="px-5 py-3 text-slate-600">{{ log.recorded_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                  <td class="px-5 py-3 font-medium text-[#122B46]">{{ log.temp_celsius }} °C{% if log.is_breach %}<span class="ml-2 text-xs font-semibold text-red-700">Breach</span>{% endif %}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ log.location }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-500">No temperature readings yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-200 bg-[#F1F8FF] px-5 py-4">
+          <h2 class="font-semibold text-[#122B46]">Inspection history</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[420px] text-left text-sm">
+            <thead class="text-xs uppercase tracking-wide text-slate-500">
+              <tr><th class="px-5 py-3">Result</th><th class="px-5 py-3">Grade</th><th class="px-5 py-3">Inspector</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for item in inspections %}
+                <tr>
+                  <td class="px-5 py-3 font-medium {% if item.inspection.passed %}text-emerald-700{% else %}text-red-700{% endif %}">{% if item.inspection.passed %}Pass{% else %}Fail{% endif %}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ item.inspection.grade }}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ item.inspector_email }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-500">No inspections yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </div>
+{% endblock %}

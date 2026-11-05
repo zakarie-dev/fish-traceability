@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ t.consignments }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.consignments }}</h1>
+      <p class="mt-2 text-sm text-slate-500">{{ t.consignments_description }}</p>
+    </header>
+
+    {% set consignment_columns = [
+      {"key": "buyer", "label": t.buyer, "cell_class": "font-semibold text-[#122B46]"},
+      {"key": "destination", "label": t.destination},
+      {"key": "shipping_date", "label": t.shipping_date},
+      {"key": "container", "label": t.container_number},
+      {"key": "lot_count", "label": t.lot_count},
+      {"key": "status", "label": t.status}
+    ] %}
+    {{ data_table(consignment_columns, consignments, caption=t.consignments_caption, empty_message=t.no_consignments) }}
+  </div>
+{% endblock %}

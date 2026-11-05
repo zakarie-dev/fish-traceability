@@ -1,0 +1,15 @@
+fastapi
+jinja2
+uvicorn
+sqlalchemy
+psycopg2-binary
+pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+python-dotenv
+bcrypt<4.1
+reportlab
+qrcode[pil]
+pytest
+httpx
+python-multipart

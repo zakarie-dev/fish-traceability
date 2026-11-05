@@ -1,0 +1,13 @@
+{% macro primary_button(label, href=None, button_type="button", extra_classes="") -%}
+  {% if href %}
+    <a
+      href="{{ href }}"
+      class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition duration-200 hover:scale-[1.03] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2 active:scale-[0.98] {{ extra_classes }}"
+    >{{ label }}</a>
+  {% else %}
+    <button
+      type="{{ button_type }}"
+      class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition duration-200 hover:scale-[1.03] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2 active:scale-[0.98] {{ extra_classes }}"
+    >{{ label }}</button>
+  {% endif %}
+{%- endmacro %}

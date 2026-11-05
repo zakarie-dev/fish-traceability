@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ t.vessels }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.vessels }}</h1>
+      <p class="mt-2 text-sm text-slate-500">{{ t.vessels_description }}</p>
+    </header>
+
+    {% set vessel_columns = [
+      {"key": "name", "label": t.vessel_name, "cell_class": "font-semibold text-[#122B46]"},
+      {"key": "registration", "label": t.registration_number},
+      {"key": "license", "label": t.license_number},
+      {"key": "expiry", "label": t.license_expiry},
+      {"key": "port", "label": t.home_port},
+      {"key": "gear", "label": t.gear_type}
+    ] %}
+    {{ data_table(vessel_columns, vessels, caption=t.vessels_caption, empty_message=t.no_vessels) }}
+  </div>
+{% endblock %}

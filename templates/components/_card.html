@@ -1,0 +1,16 @@
+{% macro data_card(title, value=None, unit="", eyebrow=None, extra_classes="") -%}
+  <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm {{ extra_classes }}">
+    <header class="border-b border-slate-100 px-5 py-4 sm:px-6">
+      {% if eyebrow %}<p class="mb-1 text-xs font-semibold uppercase tracking-wider text-[#267F82]">{{ eyebrow }}</p>{% endif %}
+      <h2 class="text-base font-semibold text-[#122B46]">{{ title }}</h2>
+    </header>
+    <div class="p-5 sm:p-6">
+      {% if value is not none %}
+        <p class="text-3xl font-bold tracking-tight text-[#122B46]">
+          {{ value }}{% if unit %}<span class="ml-1 text-base font-medium text-slate-500">{{ unit }}</span>{% endif %}
+        </p>
+      {% endif %}
+      {% if caller is defined %}{{ caller() }}{% endif %}
+    </div>
+  </section>
+{%- endmacro %}

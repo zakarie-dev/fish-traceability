@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% from "components/_card.html" import data_card %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ t.dashboard }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6 sm:space-y-8">
+    <section class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-sm font-semibold text-[#267F82]">{{ t.operations_overview }}</p>
+        <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.dashboard }}</h1>
+        <p class="mt-2 text-sm text-slate-500">{{ t.dashboard_description }}</p>
+      </div>
+      <a href="/catches" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">{{ t.record_catch }}</a>
+    </section>
+
+    <section aria-label="{{ t.key_statistics }}" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div data-reveal>
+        {{ data_card(t.total_catch, value=total_catch, eyebrow=t.recorded_catch, extra_classes="h-full") }}
+      </div>
+      <div data-reveal>
+        {{ data_card(t.active_consignments, value=active_consignments, eyebrow=t.currently_in_transit, extra_classes="h-full") }}
+      </div>
+      <div data-reveal>
+        {% call data_card(t.temperature_alerts, eyebrow=t.requires_attention, extra_classes="h-full") %}
+          <p class="text-3xl font-bold tracking-tight text-[#F36724]">{{ temperature_alerts }}</p>
+          <p class="mt-1 text-sm text-slate-500">{{ t.temperature_breaches_review }}</p>
+        {% endcall %}
+      </div>
+    </section>
+
+    <section aria-label="{{ t.catch_analytics }}" class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      <article data-reveal aria-labelledby="species-chart-title" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-100 px-5 py-4 sm:px-6">
+          <h2 id="species-chart-title" class="text-base font-semibold text-[#122B46]">{{ t.available_weight_by_species }}</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ t.available_lot_weight_kg }}</p>
+        </div>
+        <div class="relative mx-auto h-72 max-w-lg p-5 sm:h-80 sm:p-6">
+          <canvas id="species-chart" role="img" aria-label="{{ t.available_weight_by_species }}"></canvas>
+        </div>
+      </article>
+
+      <article data-reveal aria-labelledby="landing-site-chart-title" class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-100 px-5 py-4 sm:px-6">
+          <h2 id="landing-site-chart-title" class="text-base font-semibold text-[#122B46]">{{ t.available_weight_by_site }}</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ t.available_site_lot_weight }}</p>
+        </div>
+        <div class="relative h-72 p-5 sm:h-80 sm:p-6">
+          <canvas id="landing-site-chart" role="img" aria-label="{{ t.available_weight_by_site }}"></canvas>
+        </div>
+      </article>
+    </section>
+
+    <section data-reveal aria-labelledby="recent-lots-title" class="space-y-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 id="recent-lots-title" class="text-lg font-bold text-[#122B46]">{{ t.recent_lots }}</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ t.latest_lots_description }}</p>
+        </div>
+        <a href="/lots" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#122B46] transition-colors hover:border-[#267F82] hover:text-[#267F82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82] sm:self-auto">{{ t.view_all_lots }}</a>
+      </div>
+
+      {% set lot_columns = [
+        {"key": "lot_id", "label": t.lot_id, "cell_class": "font-semibold text-[#122B46]"},
+        {"key": "species", "label": t.species},
+        {"key": "weight", "label": t.weight},
+        {"key": "status", "label": t.status},
+        {"key": "view_url", "label": t.trace, "kind": "link", "link_text": t.trace, "cell_class": "font-semibold"},
+        {"key": "detail_url", "label": t.manage, "kind": "link", "link_text": t.open_forms, "cell_class": "font-semibold"}
+      ] %}
+      {{ data_table(lot_columns, recent_lots, caption=t.recent_lots_caption, empty_message=t.no_lots, extra_classes="animate-none") }}
+    </section>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const speciesLabels = {{ species_labels|tojson }};
+    const speciesWeights = {{ species_weights|tojson }};
+    const landingSiteLabels = {{ landing_site_labels|tojson }};
+    const landingSiteWeights = {{ landing_site_weights|tojson }};
+    const weightLabel = {{ t.weight_kg|tojson }};
+    const chartColors = ['#122B46', '#F36724', '#FDBA06', '#267F82', '#60A5FA', '#A78BFA'];
+
+    new Chart(document.getElementById('species-chart'), {
+      type: 'pie',
+      data: {
+        labels: speciesLabels,
+        datasets: [{
+          data: speciesWeights,
+          backgroundColor: speciesLabels.map((_, index) => chartColors[index % chartColors.length]),
+          borderColor: '#FFFFFF',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.label}: ${context.parsed.toLocaleString()} kg`
+            }
+          }
+        }
+      }
+    });
+
+    new Chart(document.getElementById('landing-site-chart'), {
+      type: 'bar',
+      data: {
+        labels: landingSiteLabels,
+        datasets: [{
+          label: weightLabel,
+          data: landingSiteWeights,
+          backgroundColor: '#267F82',
+          borderRadius: 6
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: weightLabel }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context) => `${context.parsed.y.toLocaleString()} kg`
+            }
+          }
+        }
+      }
+    });
+  </script>
+{% endblock %}
