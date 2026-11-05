@@ -11,6 +11,7 @@ class UserRole(str, Enum):
     OFFICER = "Officer"
     PROCESSOR = "Processor"
     INSPECTOR = "Inspector"
+    EXPORTER = "Exporter"
 
 
 class LoginRequest(BaseModel):
@@ -49,6 +50,10 @@ class VesselResponse(VesselCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+
+
+class LotMergeRequest(BaseModel):
+    lot_ids: list[UUID] = Field(min_length=2)
 
 
 class TraceVessel(BaseModel):

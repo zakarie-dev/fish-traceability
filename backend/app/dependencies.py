@@ -1,4 +1,6 @@
 from collections.abc import Callable
+from dataclasses import dataclass
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -12,10 +14,16 @@ from app.services.auth_service import AuthService
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+@dataclass(frozen=True)
+class AuthenticatedHTMLUser:
+    id: UUID
+    role: str
+
+
 def require_html_user(
     request: Request,
     db: Session = Depends(get_db),
-) -> bool:
+) -> AuthenticatedHTMLUser:
     """Authenticate browser pages using a session cookie or Bearer header.
 
     Browser requests are redirected to the login page when credentials are
@@ -35,9 +43,13 @@ def require_html_user(
         )
 
     try:
-        AuthService(db).get_current_user(token)
+        current_user = AuthService(db).get_current_user(token)
+        authenticated_user = AuthenticatedHTMLUser(
+            id=current_user.id,
+            role=current_user.role,
+        )
         db.rollback()
-        return True
+        return authenticated_user
     except HTTPException as exc:
         if exc.status_code != status.HTTP_401_UNAUTHORIZED:
             raise

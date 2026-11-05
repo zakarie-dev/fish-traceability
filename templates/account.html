@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-3xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.settings }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ page_title }}</h1>
+      <p class="mt-2 text-sm text-slate-500">{{ t.profile_description if user else t.settings_description }}</p>
+    </header>
+
+    {% if user %}
+      <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <dl class="divide-y divide-slate-100">
+          <div class="grid gap-1 py-4 first:pt-0 sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-slate-500">{{ t.account_email }}</dt>
+            <dd class="break-all text-sm font-semibold text-[#122B46] sm:col-span-2">{{ user.email }}</dd>
+          </div>
+          <div class="grid gap-1 py-4 last:pb-0 sm:grid-cols-3 sm:gap-4">
+            <dt class="text-sm font-medium text-slate-500">{{ t.account_role }}</dt>
+            <dd class="text-sm font-semibold text-[#122B46] sm:col-span-2">{{ user.role }}</dd>
+          </div>
+        </dl>
+      </section>
+    {% else %}
+      <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 class="text-base font-semibold text-[#122B46]">{{ t.language_preference }}</h2>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <a href="/settings?lang=en" lang="en" {% if language == "en" %}aria-current="page"{% endif %} class="inline-flex min-h-11 items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition-colors {% if language == 'en' %}border-[#122B46] bg-[#122B46] text-white{% else %}border-slate-300 text-[#122B46] hover:bg-[#F1F8FF]{% endif %}">{{ t.english }}</a>
+          <a href="/settings?lang=so" lang="so" {% if language == "so" %}aria-current="page"{% endif %} class="inline-flex min-h-11 items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition-colors {% if language == 'so' %}border-[#122B46] bg-[#122B46] text-white{% else %}border-slate-300 text-[#122B46] hover:bg-[#F1F8FF]{% endif %}">{{ t.somali }}</a>
+        </div>
+      </section>
+    {% endif %}
+  </div>
+{% endblock %}

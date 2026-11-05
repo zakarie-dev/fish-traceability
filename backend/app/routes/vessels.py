@@ -18,6 +18,6 @@ router = APIRouter(prefix="/vessels", tags=["vessels"])
 def create_vessel(
     vessel_data: VesselCreate,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_role(UserRole.ADMIN)),
+    admin: User = Depends(require_role(UserRole.ADMIN)),
 ) -> Vessel:
-    return VesselService(db).create_vessel(vessel_data)
+    return VesselService(db).create_vessel(vessel_data, admin.id)

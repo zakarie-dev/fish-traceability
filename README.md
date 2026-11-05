@@ -41,6 +41,9 @@ and `ALGORITHM` if both are set.
 Run the SQL files in `backend/migrations/` in numeric order using the Supabase
 SQL Editor or a PostgreSQL client. `002_seed.sql` creates demo-only users and
 sample records. Never use its shared demo password in a production environment.
+For an existing database, apply the new numbered migrations before restarting
+the app; `005_processing_export_audit.sql` adds the Exporter role, inspection
+timestamps, and the audit log used by these workflows.
 
 ### 3. Run the application
 
@@ -64,6 +67,7 @@ All currently use the seed-only password `ChangeMe-Seed-Only-2026!`.
 | Officer | `officer.bosaso@example.test` |
 | Processor | `processor@example.test` |
 | Inspector | `inspector@example.test` |
+| Exporter | `exporter@example.test` |
 
 These are local/demo credentials, not production accounts. Change or remove
 them before deploying.

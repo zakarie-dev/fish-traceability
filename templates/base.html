@@ -125,7 +125,7 @@
           <a href="/dashboard" {% if active_page == 'dashboard' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'dashboard' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">▦</span><span>{{ t.overview }}</span>
           </a>
-          <a href="/landing-sites" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
+          <a href="/landing-sites" {% if active_page == 'landing-sites' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'landing-sites' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">⌖</span><span>{{ t.landing_sites }}</span>
           </a>
           <a href="/vessels" {% if active_page == 'vessels' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'vessels' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
@@ -147,15 +147,20 @@
 
         <p class="mb-3 mt-8 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">{{ t.quality_compliance }}</p>
         <nav class="space-y-1">
-          <a href="/processing" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
+          <a href="/processing" {% if active_page == 'processing' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'processing' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">⚙</span><span>{{ t.processing }}</span>
           </a>
-          <a href="/temperature-logs" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
+          <a href="/temperature-logs" {% if active_page == 'temperature-logs' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'temperature-logs' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">°</span><span>{{ t.temperature_logs }}</span>
           </a>
-          <a href="/inspections" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
+          <a href="/inspections" {% if active_page == 'inspections' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'inspections' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">✓</span><span>{{ t.inspections }}</span>
           </a>
+          {% if current_user is defined and current_user.role == 'Admin' %}
+            <a href="/users" {% if active_page == 'users' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'users' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
+              <span aria-hidden="true">♙</span><span>{{ t.users }}</span>
+            </a>
+          {% endif %}
         </nav>
       </aside>
 

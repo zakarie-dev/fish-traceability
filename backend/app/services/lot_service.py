@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Lot, LotLink, LotSplitLoss
 from app.repositories.lot_repository import LotRepository
+from app.services.audit_service import record_audit_event
 
 _CENT = Decimal("0.01")
 
@@ -47,6 +48,7 @@ class LotService:
         child_weights: list[float],
         loss_weight: float,
         loss_reason: str | None = None,
+        actor_id: UUID | None = None,
     ) -> list[UUID]:
         """Split a lot into child lots while exactly accounting for all weight.
 
@@ -131,10 +133,21 @@ class LotService:
                     )
                 )
             parent.status = "Split"
+            if actor_id is not None:
+                record_audit_event(
+                    self._db,
+                    user_id=actor_id,
+                    action="lot.split",
+                    entity_id=parent.id,
+                )
 
         return [child.id for child in child_lots]
 
-    def merge_lots(self, lot_ids: list[UUID]) -> UUID:
+    def merge_lots(
+        self,
+        lot_ids: list[UUID],
+        actor_id: UUID | None = None,
+    ) -> UUID:
         """Merge at least two lots of the same species into a new lot.
 
         Args:
@@ -193,5 +206,12 @@ class LotService:
             )
             for parent in parents:
                 parent.status = "Merged"
+            if actor_id is not None:
+                record_audit_event(
+                    self._db,
+                    user_id=actor_id,
+                    action="lot.merge",
+                    entity_id=merged_id,
+                )
 
         return merged_id

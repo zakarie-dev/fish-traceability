@@ -33,6 +33,7 @@ def test_authenticated_list_pages_render_database_rows(authenticated_client):
         gear_type="Longline",
     )
     consignment = SimpleNamespace(
+        id=uuid4(),
         buyer_name="Coastal Foods",
         destination_country="Kenya",
         shipping_date=date(2026, 11, 5),

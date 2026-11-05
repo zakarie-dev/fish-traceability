@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Create consignment | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-4xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">Create consignment</h1>
+      <p class="mt-2 text-sm text-slate-500">Only available lots with a current passing inspection can be exported. A new pass inspection is required after a temperature breach.</p>
+    </header>
+
+    {% if error %}
+      <div role="alert" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">{{ error }}</div>
+    {% endif %}
+
+    {% set form_data = form_data or {} %}
+    <form method="POST" action="/consignments" class="space-y-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+      <section class="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-label="Consignment details">
+        <label class="block text-sm font-semibold text-[#122B46]">
+          Buyer
+          <input name="buyer_name" type="text" maxlength="255" required value="{{ form_data.get('buyer_name', '') }}" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+        </label>
+        <label class="block text-sm font-semibold text-[#122B46]">
+          Destination country
+          <input name="destination_country" type="text" maxlength="255" required value="{{ form_data.get('destination_country', '') }}" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+        </label>
+        <label class="block text-sm font-semibold text-[#122B46]">
+          Shipping date
+          <input name="shipping_date" type="date" required value="{{ form_data.get('shipping_date', today) }}" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+        </label>
+        <label class="block text-sm font-semibold text-[#122B46]">
+          Container number
+          <input name="container_number" type="text" maxlength="255" required value="{{ form_data.get('container_number', '') }}" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+        </label>
+      </section>
+
+      <section aria-label="Select passed lots" class="space-y-3">
+        <div>
+          <h2 class="text-lg font-bold text-[#122B46]">Passed lots</h2>
+          <p class="mt-1 text-sm text-slate-600">Select one or more eligible lots to include.</p>
+        </div>
+        <div class="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
+          {% for lot in lots %}
+            <label class="flex cursor-pointer items-start gap-3 rounded-lg p-3 hover:bg-[#F1F8FF]">
+              <input type="checkbox" name="lot_ids" value="{{ lot.id }}" {% if lot.id|string in form_data.get('lot_ids', []) %}checked{% endif %} class="mt-1 h-4 w-4 rounded border-slate-300 text-[#267F82] focus:ring-[#267F82]">
+              <span>
+                <span class="block font-semibold text-[#122B46]">{{ lot.lot_code }}</span>
+                <span class="mt-0.5 block text-sm text-slate-600">{{ lot.current_weight }} kg · {{ lot.status }}</span>
+              </span>
+            </label>
+          {% else %}
+            <p class="px-3 py-6 text-center text-sm text-slate-500">No lots are currently eligible for export.</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <a href="/consignments" class="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-[#122B46] hover:bg-[#F1F8FF]">Cancel</a>
+        <button type="submit" {% if not lots %}disabled{% endif %} class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50">Create consignment</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

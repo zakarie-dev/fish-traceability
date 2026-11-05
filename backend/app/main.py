@@ -1,18 +1,23 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
+import qrcode
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, status
 from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import PUBLIC_TRACE_BASE_URL
 from app.database import get_db
-from app.dependencies import require_html_user
+from app.dependencies import AuthenticatedHTMLUser, require_html_user
 from app.models import (
     Catch,
     Consignment,
@@ -20,6 +25,7 @@ from app.models import (
     Inspection,
     LandingSite,
     Lot,
+    ProcessingStep,
     Species,
     TemperatureLog,
     User,
@@ -27,8 +33,10 @@ from app.models import (
 )
 from app.routes.auth import router as auth_router
 from app.routes.certificates import router as certificates_router
+from app.routes.lots import router as lots_router
 from app.routes.traceability import router as traceability_router
 from app.routes.vessels import router as vessels_router
+from app.services.consignment_service import ConsignmentService
 from app.services.dashboard_service import DashboardService
 from app.services.lot_service import LotService
 from app.services.traceability_service import TraceabilityService
@@ -65,6 +73,48 @@ def _set_language_cookie(response: HTMLResponse, language: str) -> None:
     )
 
 
+def _render_landing_sites(
+    request: Request,
+    db: Session,
+    current_user: AuthenticatedHTMLUser,
+    *,
+    error: str | None = None,
+    form_data: dict[str, str] | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    language = _selected_language(request)
+    translations = get_translations(language)
+    response = templates.TemplateResponse(
+        request=request,
+        name="landing_sites.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "landing-sites",
+            "current_user": current_user,
+            "landing_sites": [
+                {
+                    "name": site.name,
+                    "region": site.region,
+                    "latitude": str(site.gps_lat) if site.gps_lat is not None else "—",
+                    "longitude": str(site.gps_lng) if site.gps_lng is not None else "—",
+                    "status": (
+                        translations["site_active"]
+                        if site.is_active
+                        else translations["site_inactive"]
+                    ),
+                }
+                for site in db.scalars(select(LandingSite).order_by(LandingSite.name))
+            ],
+            "error": error,
+            "form_data": form_data or {},
+        },
+        status_code=status_code,
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
 def _render_catch_form(
     request: Request,
     db: Session,
@@ -75,12 +125,13 @@ def _render_catch_form(
     status_code: int = status.HTTP_200_OK,
 ) -> HTMLResponse:
     language = _selected_language(request)
+    translations = get_translations(language)
     response = templates.TemplateResponse(
         request=request,
         name="catch.html",
         context={
             "language": language,
-            "t": get_translations(language),
+            "t": translations,
             "vessels": list(db.scalars(select(Vessel).order_by(Vessel.name))),
             "species": list(db.scalars(select(Species).order_by(Species.name))),
             "landing_sites": list(
@@ -133,8 +184,31 @@ def _render_lot_detail(
             select(Inspection, User.email)
             .join(User, User.id == Inspection.inspector_id)
             .where(Inspection.lot_id == lot_id)
-            .order_by(Inspection.id.desc())
+            .order_by(Inspection.inspected_at.desc(), Inspection.id.desc())
         )
+    )
+    processing_steps = list(
+        db.scalars(
+            select(ProcessingStep)
+            .where(ProcessingStep.lot_id == lot_id)
+            .order_by(ProcessingStep.id.desc())
+        )
+    )
+    latest_breach_at = db.scalar(
+        select(func.max(TemperatureLog.recorded_at)).where(
+            TemperatureLog.lot_id == lot_id,
+            TemperatureLog.is_breach.is_(True),
+        )
+    )
+    latest_pass_at = db.scalar(
+        select(func.max(Inspection.inspected_at)).where(
+            Inspection.lot_id == lot_id,
+            Inspection.passed.is_(True),
+        )
+    )
+    open_temperature_breach = (
+        latest_breach_at is not None
+        and (latest_pass_at is None or latest_pass_at <= latest_breach_at)
     )
     language = _selected_language(request)
     response = templates.TemplateResponse(
@@ -146,6 +220,9 @@ def _render_lot_detail(
             "lot": lot,
             "species_name": species.name if species is not None else "Unknown",
             "temperature_logs": temperature_logs,
+            "processing_steps": processing_steps,
+            "open_temperature_breach": open_temperature_breach,
+            "latest_breach_at": latest_breach_at,
             "inspections": [
                 {"inspection": inspection, "inspector_email": email}
                 for inspection, email in inspection_rows
@@ -159,7 +236,35 @@ def _render_lot_detail(
             ),
             "error": error,
             "success": request.query_params.get("success"),
+            "warning": request.query_params.get("warning"),
             "form_data": form_data or {},
+        },
+        status_code=status_code,
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+def _render_consignment_form(
+    request: Request,
+    db: Session,
+    *,
+    form_data: dict[str, object] | None = None,
+    error: str | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    language = _selected_language(request)
+    response = templates.TemplateResponse(
+        request=request,
+        name="create_consignment.html",
+        context={
+            "language": language,
+            "t": get_translations(language),
+            "active_page": "consignments",
+            "lots": ConsignmentService(db).get_eligible_lots(),
+            "form_data": form_data or {},
+            "error": error,
+            "today": date.today().isoformat(),
         },
         status_code=status_code,
     )
@@ -194,7 +299,7 @@ def login_page(request: Request) -> HTMLResponse:
 def catch_form(
     request: Request,
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render the browser form used to record a catch and create its initial lot."""
     return _render_catch_form(
@@ -221,7 +326,7 @@ def create_catch_from_form(
     landing_site_id: str = Form(...),
     officer_id: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Save a catch and corresponding available lot from the HTML form."""
     form_data = {
@@ -325,7 +430,7 @@ def lot_detail_page(
     lot_id: UUID,
     request: Request,
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render lot details and the split, temperature, and inspection forms."""
     return _render_lot_detail(request, db, lot_id)
@@ -344,7 +449,7 @@ def split_lot_from_form(
     loss_weight: str = Form(...),
     loss_reason: str = Form(""),
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Split a lot using comma- or newline-separated child weights."""
     form_data = {
@@ -369,7 +474,13 @@ def split_lot_from_form(
         )
 
     try:
-        LotService(db).split_lot(lot_id, weights, loss, loss_reason or None)
+        LotService(db).split_lot(
+            lot_id,
+            weights,
+            loss,
+            loss_reason or None,
+            actor_id=current_user.id,
+        )
     except HTTPException as exc:
         return _render_lot_detail(
             request,
@@ -380,6 +491,93 @@ def split_lot_from_form(
             status_code=exc.status_code,
         )
     return RedirectResponse(url=f"/lots/{lot_id}?success=split", status_code=303)
+
+
+@app.post(
+    "/lots/{lot_id}/processing",
+    response_class=HTMLResponse,
+    response_model=None,
+    include_in_schema=False,
+)
+def record_processing_step(
+    lot_id: UUID,
+    request: Request,
+    step_type: str = Form(...),
+    weight_in: str = Form(...),
+    weight_out: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    """Record a supported processing operation and calculate its yield."""
+    form_data = {
+        "step_type": step_type,
+        "weight_in": weight_in,
+        "weight_out": weight_out,
+    }
+    if step_type not in {"Gutting", "Filleting", "Freezing", "Packing"}:
+        return _render_lot_detail(
+            request,
+            db,
+            lot_id,
+            error="Choose a valid processing step.",
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        input_weight = Decimal(weight_in)
+        output_weight = Decimal(weight_out)
+        if (
+            not input_weight.is_finite()
+            or not output_weight.is_finite()
+            or input_weight <= 0
+            or output_weight < 0
+            or input_weight >= Decimal("100000000")
+            or output_weight >= Decimal("100000000")
+            or input_weight.quantize(Decimal("0.01")) != input_weight
+            or output_weight.quantize(Decimal("0.01")) != output_weight
+        ):
+            raise ValueError
+        if output_weight > input_weight:
+            raise ValueError("Weight out cannot exceed weight in.")
+    except (InvalidOperation, ValueError):
+        return _render_lot_detail(
+            request,
+            db,
+            lot_id,
+            error="Enter valid weights; weight out cannot exceed weight in.",
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    yield_pct = (output_weight / input_weight * Decimal("100")).quantize(
+        Decimal("0.01")
+    )
+    with db.begin():
+        if db.get(Lot, lot_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lot not found",
+            )
+        db.add(
+            ProcessingStep(
+                lot_id=lot_id,
+                step_type=step_type,
+                operator_id=current_user.id,
+                weight_in=input_weight,
+                weight_out=output_weight,
+                yield_pct=yield_pct,
+            )
+        )
+
+    warning = (
+        "&warning=low-yield"
+        if step_type == "Filleting" and yield_pct < Decimal("40")
+        else ""
+    )
+    return RedirectResponse(
+        url=f"/lots/{lot_id}?success=processing{warning}",
+        status_code=303,
+    )
 
 
 @app.post(
@@ -394,7 +592,7 @@ def log_temperature_from_form(
     temp_celsius: str = Form(...),
     location: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Record a temperature observation for a lot."""
     form_data = {"temp_celsius": temp_celsius, "location": location}
@@ -457,7 +655,7 @@ def inspect_lot_from_form(
     grade: str = Form(...),
     inspector_id: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Save an inspection result for a lot."""
     form_data = {
@@ -487,6 +685,7 @@ def inspect_lot_from_form(
         )
 
     validation_error = None
+    inspected_at = datetime.now(timezone.utc)
     with db.begin():
         lot = db.get(Lot, lot_id)
         inspector = db.get(User, selected_inspector_id)
@@ -498,14 +697,36 @@ def inspect_lot_from_form(
         if inspector is None or inspector.role != "Inspector":
             validation_error = "Select an authorized inspector from the list."
         else:
-            db.add(
-                Inspection(
-                    lot_id=lot_id,
-                    inspector_id=inspector.id,
-                    grade=grade,
-                    passed=result == "pass",
+            latest_breach_at = db.scalar(
+                select(func.max(TemperatureLog.recorded_at)).where(
+                    TemperatureLog.lot_id == lot_id,
+                    TemperatureLog.is_breach.is_(True),
                 )
             )
+            if (
+                result == "pass"
+                and latest_breach_at is not None
+                and inspected_at
+                <= (
+                    latest_breach_at.replace(tzinfo=timezone.utc)
+                    if latest_breach_at.tzinfo is None
+                    else latest_breach_at
+                )
+            ):
+                validation_error = (
+                    "A passing inspection must be recorded after the latest "
+                    "temperature breach."
+                )
+            else:
+                db.add(
+                    Inspection(
+                        lot_id=lot_id,
+                        inspector_id=inspector.id,
+                        grade=grade,
+                        passed=result == "pass",
+                        inspected_at=inspected_at,
+                    )
+                )
     if validation_error is not None:
         return _render_lot_detail(
             request,
@@ -518,11 +739,72 @@ def inspect_lot_from_form(
     return RedirectResponse(url=f"/lots/{lot_id}?success=inspection", status_code=303)
 
 
+@app.get(
+    "/lots/{lot_id}/label",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def lot_label_page(
+    lot_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render a printable QR label for a lot's public trace endpoint."""
+    lot = db.get(Lot, lot_id)
+    if lot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lot not found",
+        )
+    trace_url = (
+        f"{PUBLIC_TRACE_BASE_URL.rstrip('/')}/{quote(lot.lot_code, safe='')}"
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="print_label.html",
+        context={
+            "language": _selected_language(request),
+            "t": get_translations(_selected_language(request)),
+            "active_page": "lots",
+            "lot": lot,
+            "trace_url": trace_url,
+            "qr_url": f"/lots/{lot.id}/label/qr.png",
+        },
+    )
+
+
+@app.get(
+    "/lots/{lot_id}/label/qr.png",
+    response_class=Response,
+    include_in_schema=False,
+)
+def lot_label_qr(
+    lot_id: UUID,
+    db: Session = Depends(get_db),
+    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    """Return a PNG QR code that opens the lot's public trace endpoint."""
+    lot = db.get(Lot, lot_id)
+    if lot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lot not found",
+        )
+    trace_url = (
+        f"{PUBLIC_TRACE_BASE_URL.rstrip('/')}/{quote(lot.lot_code, safe='')}"
+    )
+    qr_image = qrcode.make(trace_url)
+    output = BytesIO()
+    qr_image.save(output, format="PNG")
+    return Response(content=output.getvalue(), media_type="image/png")
+
+
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page(
     request: Request,
     db: Session = Depends(get_db),
-    _authenticated: bool = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     language = _selected_language(request)
     translations = get_translations(language)
@@ -534,6 +816,7 @@ def dashboard_page(
             "language": language,
             "t": translations,
             "active_page": "dashboard",
+            "current_user": current_user,
             "today_label": translations["operations_overview"],
             "total_catch": f"{dashboard.total_catch_kg:,.2f}",
             "active_consignments": dashboard.active_consignments,
@@ -560,13 +843,13 @@ def dashboard_page(
 @app.get(
     "/lots",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_html_user)],
     include_in_schema=False,
 )
 def lots_page(
     request: Request,
     q: str = Query(default="", max_length=100),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render the searchable lot inventory for authenticated staff."""
     language = _selected_language(request)
@@ -603,6 +886,7 @@ def lots_page(
             "language": language,
             "t": translations,
             "active_page": "lots",
+            "current_user": current_user,
             "query": search_term,
             "lots": rows,
         },
@@ -614,12 +898,12 @@ def lots_page(
 @app.get(
     "/vessels",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_html_user)],
     include_in_schema=False,
 )
 def vessels_page(
     request: Request,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render the vessel registry for authenticated staff."""
     language = _selected_language(request)
@@ -643,11 +927,107 @@ def vessels_page(
             "language": language,
             "t": translations,
             "active_page": "vessels",
+            "current_user": current_user,
             "vessels": rows,
         },
     )
     _set_language_cookie(response, language)
     return response
+
+
+@app.get(
+    "/consignments/new",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def create_consignment_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render the exporter form with currently eligible lots."""
+    if current_user.role not in {"Admin", "Exporter"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Exporter role required",
+        )
+    return _render_consignment_form(request, db)
+
+
+@app.post(
+    "/consignments",
+    response_class=HTMLResponse,
+    response_model=None,
+    include_in_schema=False,
+)
+def create_consignment_from_form(
+    request: Request,
+    buyer_name: str = Form(...),
+    destination_country: str = Form(...),
+    shipping_date: str = Form(...),
+    container_number: str = Form(...),
+    lot_ids: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    """Create a consignment from selected eligible lots."""
+    if current_user.role not in {"Admin", "Exporter"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Exporter role required",
+        )
+    form_data: dict[str, object] = {
+        "buyer_name": buyer_name,
+        "destination_country": destination_country,
+        "shipping_date": shipping_date,
+        "container_number": container_number,
+        "lot_ids": lot_ids,
+    }
+    try:
+        selected_lot_ids = [UUID(value) for value in lot_ids]
+        selected_shipping_date = date.fromisoformat(shipping_date)
+    except ValueError:
+        return _render_consignment_form(
+            request,
+            db,
+            form_data=form_data,
+            error="Enter a valid shipping date and select eligible lots.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    buyer = buyer_name.strip()
+    destination = destination_country.strip()
+    container = container_number.strip()
+    if not buyer or not destination or not container:
+        return _render_consignment_form(
+            request,
+            db,
+            form_data=form_data,
+            error="Buyer, destination, and container number are required.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        consignment_id = ConsignmentService(db).create_consignment(
+            lot_ids=selected_lot_ids,
+            buyer_name=buyer,
+            destination_country=destination,
+            shipping_date=selected_shipping_date,
+            container_number=container,
+            actor_id=current_user.id,
+        )
+    except HTTPException as exc:
+        return _render_consignment_form(
+            request,
+            db,
+            form_data=form_data,
+            error=str(exc.detail),
+            status_code=exc.status_code,
+        )
+    return RedirectResponse(
+        url=f"/consignments?success={consignment_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.get(
@@ -659,6 +1039,7 @@ def vessels_page(
 def consignments_page(
     request: Request,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render consignment records and their lot counts for authenticated staff."""
     language = _selected_language(request)
@@ -677,6 +1058,7 @@ def consignments_page(
     )
     rows = [
         {
+            "id": consignment.id,
             "buyer": consignment.buyer_name,
             "destination": consignment.destination_country,
             "shipping_date": consignment.shipping_date.isoformat(),
@@ -685,6 +1067,9 @@ def consignments_page(
             "status": translations.get(
                 f"lot_status_{consignment.status.lower()}",
                 consignment.status,
+            ),
+            "certificate_url": (
+                f"/consignments/{consignment.id}/certificate.pdf"
             ),
         }
         for consignment, lot_count in db.execute(statement).all()
@@ -696,7 +1081,10 @@ def consignments_page(
             "language": language,
             "t": translations,
             "active_page": "consignments",
+            "current_user": current_user,
             "consignments": rows,
+            "can_manage_exports": getattr(current_user, "role", None)
+            in {"Admin", "Exporter"},
         },
     )
     _set_language_cookie(response, language)
@@ -744,7 +1132,415 @@ def public_trace_page(
     return response
 
 
+@app.get(
+    "/landing-sites",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def landing_sites_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render landing sites for authenticated users."""
+    return _render_landing_sites(request, db, current_user)
+
+
+@app.post(
+    "/landing-sites",
+    response_class=HTMLResponse,
+    response_model=None,
+    include_in_schema=False,
+)
+def create_landing_site(
+    request: Request,
+    name: str = Form(..., max_length=255),
+    region: str = Form(..., max_length=255),
+    gps_lat: str = Form(default="", max_length=32),
+    gps_lng: str = Form(default="", max_length=32),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse | RedirectResponse:
+    """Create a landing site after validating its name, region, and coordinates."""
+    if current_user.role != "Admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+
+    form_data = {
+        "name": name,
+        "region": region,
+        "gps_lat": gps_lat,
+        "gps_lng": gps_lng,
+    }
+    clean_name = name.strip()
+    clean_region = region.strip()
+    if not clean_name or not clean_region:
+        return _render_landing_sites(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "landing_site_form_error"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if bool(gps_lat.strip()) != bool(gps_lng.strip()):
+        return _render_landing_sites(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "landing_site_form_error"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    coordinates: list[Decimal | None] = []
+    try:
+        for raw_value, minimum, maximum, field_name in (
+            (gps_lat, Decimal("-90"), Decimal("90"), "Latitude"),
+            (gps_lng, Decimal("-180"), Decimal("180"), "Longitude"),
+        ):
+            value = raw_value.strip()
+            if not value:
+                coordinates.append(None)
+                continue
+            coordinate = Decimal(value)
+            if (
+                not coordinate.is_finite()
+                or coordinate < minimum
+                or coordinate > maximum
+                or coordinate.quantize(Decimal("0.000001")) != coordinate
+            ):
+                raise ValueError(f"{field_name} must be a valid GPS coordinate.")
+            coordinates.append(coordinate)
+    except (InvalidOperation, ValueError):
+        return _render_landing_sites(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "landing_site_form_error"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        with db.begin():
+            db.add(
+                LandingSite(
+                    name=clean_name,
+                    region=clean_region,
+                    gps_lat=coordinates[0],
+                    gps_lng=coordinates[1],
+                    is_active=True,
+                )
+            )
+    except IntegrityError:
+        return _render_landing_sites(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "landing_site_name_exists"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_409_CONFLICT,
+        )
+
+    return RedirectResponse(
+        url="/landing-sites?created=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get(
+    "/users",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def users_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render the account and assigned-site directory for administrators."""
+    if current_user.role != "Admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+
+    language = _selected_language(request)
+    translations = get_translations(language)
+    statement = (
+        select(User.email, User.role, LandingSite.name)
+        .outerjoin(LandingSite, LandingSite.id == User.assigned_site_id)
+        .order_by(User.email)
+    )
+    rows = [
+        {
+            "email": email,
+            "role": role,
+            "site": site_name or translations["unassigned"],
+        }
+        for email, role, site_name in db.execute(statement).all()
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="users.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "users",
+            "current_user": current_user,
+            "users": rows,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get(
+    "/processing",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def processing_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render processing records for the sidebar destination."""
+    language = _selected_language(request)
+    translations = get_translations(language)
+    statement = (
+        select(ProcessingStep, Lot.lot_code, User.email)
+        .join(Lot, Lot.id == ProcessingStep.lot_id)
+        .outerjoin(User, User.id == ProcessingStep.operator_id)
+        .order_by(ProcessingStep.id.desc())
+    )
+    rows = [
+        {
+            "lot": lot_code,
+            "step": step.step_type,
+            "operator": email or translations["unassigned"],
+            "weight_in": f"{step.weight_in:,.2f} kg",
+            "weight_out": f"{step.weight_out:,.2f} kg",
+            "yield": f"{step.yield_pct}%" if step.yield_pct is not None else "—",
+        }
+        for step, lot_code, email in db.execute(statement).all()
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="activity_list.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "processing",
+            "current_user": current_user,
+            "page_title": translations["processing"],
+            "page_description": translations["processing_page_description"],
+            "caption": translations["processing_caption"],
+            "empty_message": translations["no_processing"],
+            "columns": [
+                {"key": "lot", "label": translations["lot_id"]},
+                {"key": "step", "label": translations["processing_step"]},
+                {"key": "operator", "label": translations["operator"]},
+                {"key": "weight_in", "label": translations["weight_in"]},
+                {"key": "weight_out", "label": translations["weight_out"]},
+                {"key": "yield", "label": translations["yield"]},
+            ],
+            "rows": rows,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get(
+    "/temperature-logs",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def temperature_logs_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render recorded cold-chain readings for the sidebar destination."""
+    language = _selected_language(request)
+    translations = get_translations(language)
+    statement = (
+        select(TemperatureLog, Lot.lot_code)
+        .join(Lot, Lot.id == TemperatureLog.lot_id)
+        .order_by(TemperatureLog.recorded_at.desc())
+    )
+    rows = [
+        {
+            "lot": lot_code,
+            "temperature": f"{log.temp_celsius} °C",
+            "location": log.location,
+            "recorded_at": log.recorded_at.isoformat(),
+            "status": (
+                translations["temperature_alerts"]
+                if log.is_breach
+                else translations["within_limits"]
+            ),
+        }
+        for log, lot_code in db.execute(statement).all()
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="activity_list.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "temperature-logs",
+            "current_user": current_user,
+            "page_title": translations["temperature_logs"],
+            "page_description": translations["temperature_logs_description"],
+            "caption": translations["temperature_logs_caption"],
+            "empty_message": translations["no_temperature_logs"],
+            "columns": [
+                {"key": "lot", "label": translations["lot_id"]},
+                {"key": "temperature", "label": translations["temperature"]},
+                {"key": "location", "label": translations["location"]},
+                {"key": "recorded_at", "label": translations["recorded_at"]},
+                {"key": "status", "label": translations["status"]},
+            ],
+            "rows": rows,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get(
+    "/inspections",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def inspections_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render quality inspection records for the sidebar destination."""
+    language = _selected_language(request)
+    translations = get_translations(language)
+    statement = (
+        select(Inspection, Lot.lot_code, User.email)
+        .join(Lot, Lot.id == Inspection.lot_id)
+        .join(User, User.id == Inspection.inspector_id)
+        .order_by(Inspection.inspected_at.desc())
+    )
+    rows = [
+        {
+            "lot": lot_code,
+            "inspector": email,
+            "grade": inspection.grade,
+            "result": (
+                translations["passed"]
+                if inspection.passed
+                else translations["failed"]
+            ),
+            "inspected_at": inspection.inspected_at.isoformat(),
+        }
+        for inspection, lot_code, email in db.execute(statement).all()
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="activity_list.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "inspections",
+            "current_user": current_user,
+            "page_title": translations["inspections"],
+            "page_description": translations["inspections_description"],
+            "caption": translations["inspections_caption"],
+            "empty_message": translations["no_inspections"],
+            "columns": [
+                {"key": "lot", "label": translations["lot_id"]},
+                {"key": "inspector", "label": translations["inspector"]},
+                {"key": "grade", "label": translations["grade"]},
+                {"key": "result", "label": translations["result"]},
+                {"key": "inspected_at", "label": translations["inspected_at"]},
+            ],
+            "rows": rows,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get("/profile", response_class=HTMLResponse, include_in_schema=False)
+def profile_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render the authenticated user's account details."""
+    user = db.get(User, current_user.id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    language = _selected_language(request)
+    response = templates.TemplateResponse(
+        request=request,
+        name="account.html",
+        context={
+            "language": language,
+            "t": get_translations(language),
+            "active_page": "profile",
+            "current_user": current_user,
+            "page_title": get_translations(language)["my_profile"],
+            "user": user,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+def settings_page(
+    request: Request,
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render account preferences and language settings."""
+    language = _selected_language(request)
+    response = templates.TemplateResponse(
+        request=request,
+        name="account.html",
+        context={
+            "language": language,
+            "t": get_translations(language),
+            "active_page": "settings",
+            "current_user": current_user,
+            "page_title": get_translations(language)["settings"],
+            "user": None,
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.get("/logout", include_in_schema=False)
+def logout() -> RedirectResponse:
+    """Clear the browser authentication cookie and return to login."""
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key="access_token", path="/")
+    return response
+
+
 app.include_router(auth_router)
 app.include_router(vessels_router)
+app.include_router(lots_router)
 app.include_router(traceability_router)
 app.include_router(certificates_router)

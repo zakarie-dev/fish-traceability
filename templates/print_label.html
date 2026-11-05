@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Print label · {{ lot.lot_code }} | Somali Fish Trace{% endblock %}
+
+{% block head %}
+  <style>
+    @media print {
+      header, aside, #sidebar-backdrop, .no-print { display: none !important; }
+      body { background: white !important; }
+      main { padding: 0 !important; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <main class="mx-auto max-w-xl space-y-5 rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm print:border-0 print:shadow-none">
+    <p class="text-sm font-semibold uppercase tracking-wider text-[#267F82]">Somali Fish Trace</p>
+    <h1 class="break-all text-2xl font-bold text-[#122B46]">{{ lot.lot_code }}</h1>
+    <p class="text-sm text-slate-600">Scan for the public traceability record.</p>
+    <img src="{{ qr_url }}" alt="QR code linking to {{ trace_url }}" class="mx-auto h-64 w-64">
+    <p class="break-all text-xs text-slate-500">{{ trace_url }}</p>
+    <div class="no-print flex justify-center gap-3 pt-2">
+      <button type="button" onclick="window.print()" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white">Print label</button>
+      <a href="/lots/{{ lot.id }}" class="inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-[#122B46]">Back to lot</a>
+    </div>
+  </main>
+{% endblock %}

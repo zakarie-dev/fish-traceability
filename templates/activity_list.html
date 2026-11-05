@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ page_title }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.quality_compliance }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ page_title }}</h1>
+      <p class="mt-2 text-sm text-slate-500">{{ page_description }}</p>
+    </header>
+
+    {{ data_table(columns, rows, caption=caption, empty_message=empty_message) }}
+  </div>
+{% endblock %}

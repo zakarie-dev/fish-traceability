@@ -13,7 +13,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db
-from app.dependencies import get_current_user, require_html_user
+from app.dependencies import (
+    AuthenticatedHTMLUser,
+    get_current_user,
+    require_html_user,
+)
 from app.main import app
 
 
@@ -31,7 +35,10 @@ def client():
 @pytest.fixture
 def authenticated_client(client):
     """Return a client that bypasses only HTML authentication for page tests."""
-    app.dependency_overrides[require_html_user] = lambda: True
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=uuid4(),
+        role="Admin",
+    )
     try:
         yield client
     finally:

@@ -9,7 +9,8 @@ INSERT INTO users (id, email, hashed_password, role, assigned_site_id) VALUES
     ('20000000-0000-4000-8000-000000000002', 'officer.berbera@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Officer', '10000000-0000-4000-8000-000000000001'),
     ('20000000-0000-4000-8000-000000000003', 'officer.bosaso@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Officer', '10000000-0000-4000-8000-000000000002'),
     ('20000000-0000-4000-8000-000000000004', 'processor@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Processor', '10000000-0000-4000-8000-000000000001'),
-    ('20000000-0000-4000-8000-000000000005', 'inspector@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Inspector', '10000000-0000-4000-8000-000000000003');
+    ('20000000-0000-4000-8000-000000000005', 'inspector@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Inspector', '10000000-0000-4000-8000-000000000003'),
+    ('20000000-0000-4000-8000-000000000006', 'exporter@example.test', crypt('ChangeMe-Seed-Only-2026!', gen_salt('bf', 12)), 'Exporter', NULL);
 
 INSERT INTO species (id, name, is_protected) VALUES
     ('30000000-0000-4000-8000-000000000001', 'Yellowfin Tuna', FALSE),

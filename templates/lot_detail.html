@@ -10,7 +10,10 @@
         <h1 class="mt-1 break-all text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ lot.lot_code }}</h1>
         <p class="mt-2 text-sm text-slate-600">{{ species_name }} · {{ lot.current_weight }} kg · {{ lot.status }}</p>
       </div>
-      <a href="/trace/{{ lot.lot_code }}" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-[#267F82]/40 bg-white px-4 py-2 text-sm font-semibold text-[#267F82] transition hover:bg-[#F1F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82]">View trace</a>
+      <div class="flex flex-wrap gap-2">
+        <a href="/trace/{{ lot.lot_code }}" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-[#267F82]/40 bg-white px-4 py-2 text-sm font-semibold text-[#267F82] transition hover:bg-[#F1F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82]">View trace</a>
+        <a href="/lots/{{ lot.id }}/label" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg bg-[#122B46] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#267F82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724]">Print QR label</a>
+      </div>
     </header>
 
     {% if error %}
@@ -22,10 +25,20 @@
       <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Temperature observation logged.</div>
     {% elif success == "inspection" %}
       <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Inspection saved successfully.</div>
+    {% elif success == "processing" %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Processing step recorded successfully.</div>
+    {% endif %}
+    {% if warning == "low-yield" %}
+      <div role="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">Warning: filleting yield is below 40%. Review this processing result.</div>
+    {% endif %}
+    {% if open_temperature_breach %}
+      <div role="alert" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+        This lot has an open temperature breach{% if latest_breach_at %} recorded at {{ latest_breach_at.strftime("%Y-%m-%d %H:%M") }}{% endif %}. A new passing inspection after the breach is required before export.
+      </div>
     {% endif %}
 
     {% set form_data = form_data or {} %}
-    <section aria-label="Lot actions" class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+    <section aria-label="Lot actions" class="grid grid-cols-1 gap-5 xl:grid-cols-2">
       <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="mb-5">
           <h2 class="text-lg font-bold text-[#122B46]">Split lot</h2>
@@ -45,6 +58,33 @@
             <input name="loss_reason" type="text" maxlength="500" value="{{ form_data.get('loss_reason', '') }}" placeholder="Explain unusually high loss" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
           </label>
           <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Split lot</button>
+        </form>
+      </article>
+
+      <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="mb-5">
+          <h2 class="text-lg font-bold text-[#122B46]">Record processing step</h2>
+          <p class="mt-1 text-sm text-slate-600">Record input and output weights. Output cannot exceed input.</p>
+        </div>
+        <form method="POST" action="/lots/{{ lot.id }}/processing" class="space-y-4">
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Step
+            <select name="step_type" required class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+              <option value="">Choose a processing step</option>
+              {% for step in ["Gutting", "Filleting", "Freezing", "Packing"] %}
+                <option value="{{ step }}" {% if form_data.get('step_type') == step %}selected{% endif %}>{{ step }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Weight in (kg)
+            <input name="weight_in" type="number" min="0.01" step="0.01" required value="{{ form_data.get('weight_in', '') }}" inputmode="decimal" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
+            Weight out (kg)
+            <input name="weight_out" type="number" min="0" step="0.01" required value="{{ form_data.get('weight_out', '') }}" inputmode="decimal" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+          </label>
+          <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save processing step</button>
         </form>
       </article>
 
@@ -104,6 +144,33 @@
       </article>
     </section>
 
+    <section class="grid grid-cols-1 gap-5">
+      <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-200 bg-[#F1F8FF] px-5 py-4">
+          <h2 class="font-semibold text-[#122B46]">Processing history</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[520px] text-left text-sm">
+            <thead class="text-xs uppercase tracking-wide text-slate-500">
+              <tr><th class="px-5 py-3">Step</th><th class="px-5 py-3">Weight in</th><th class="px-5 py-3">Weight out</th><th class="px-5 py-3">Yield</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for step in processing_steps %}
+                <tr>
+                  <td class="px-5 py-3 font-medium text-[#122B46]">{{ step.step_type }}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ step.weight_in }} kg</td>
+                  <td class="px-5 py-3 text-slate-600">{{ step.weight_out }} kg</td>
+                  <td class="px-5 py-3 text-slate-600">{{ step.yield_pct }}%</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No processing steps recorded yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
     <section class="grid grid-cols-1 gap-5 lg:grid-cols-2">
       <article class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div class="border-b border-slate-200 bg-[#F1F8FF] px-5 py-4">
@@ -136,7 +203,7 @@
         <div class="overflow-x-auto">
           <table class="w-full min-w-[420px] text-left text-sm">
             <thead class="text-xs uppercase tracking-wide text-slate-500">
-              <tr><th class="px-5 py-3">Result</th><th class="px-5 py-3">Grade</th><th class="px-5 py-3">Inspector</th></tr>
+              <tr><th class="px-5 py-3">Result</th><th class="px-5 py-3">Grade</th><th class="px-5 py-3">Inspector</th><th class="px-5 py-3">Inspected</th></tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
               {% for item in inspections %}
@@ -144,9 +211,10 @@
                   <td class="px-5 py-3 font-medium {% if item.inspection.passed %}text-emerald-700{% else %}text-red-700{% endif %}">{% if item.inspection.passed %}Pass{% else %}Fail{% endif %}</td>
                   <td class="px-5 py-3 text-slate-600">{{ item.inspection.grade }}</td>
                   <td class="px-5 py-3 text-slate-600">{{ item.inspector_email }}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ item.inspection.inspected_at.strftime("%Y-%m-%d %H:%M") }}</td>
                 </tr>
               {% else %}
-                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-500">No inspections yet.</td></tr>
+                <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No inspections yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>

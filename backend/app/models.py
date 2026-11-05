@@ -29,13 +29,17 @@ class LandingSite(Base):
         PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    region: Mapped[str] = mapped_column(String, nullable=False)
+    gps_lat: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    gps_lng: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('Admin', 'Officer', 'Processor', 'Inspector')",
+            "role IN ('Admin', 'Officer', 'Processor', 'Inspector', 'Exporter')",
             name="users_role_check",
         ),
     )
@@ -200,6 +204,9 @@ class Inspection(Base):
     )
     grade: Mapped[str] = mapped_column(String, nullable=False)
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    inspected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -245,3 +252,23 @@ class SMSOutbox(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     status: Mapped[str] = mapped_column(String, nullable=False, default="Pending")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -13,7 +13,7 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     hashed_password TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('Admin', 'Officer', 'Processor', 'Inspector')),
+    role TEXT NOT NULL CHECK (role IN ('Admin', 'Officer', 'Processor', 'Inspector', 'Exporter')),
     assigned_site_id UUID REFERENCES landing_sites(id) ON DELETE SET NULL
 );
 

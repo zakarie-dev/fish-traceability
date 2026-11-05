@@ -6,10 +6,20 @@
 {% block content %}
   <div class="mx-auto max-w-7xl space-y-6">
     <header>
-      <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
-      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.consignments }}</h1>
-      <p class="mt-2 text-sm text-slate-500">{{ t.consignments_description }}</p>
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold text-[#267F82]">{{ t.workspace }}</p>
+          <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.consignments }}</h1>
+          <p class="mt-2 text-sm text-slate-500">{{ t.consignments_description }}</p>
+        </div>
+        {% if can_manage_exports %}
+          <a href="/consignments/new" class="inline-flex min-h-11 items-center justify-center self-start rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md">Create consignment</a>
+        {% endif %}
+      </div>
     </header>
+    {% if success %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Consignment created successfully.</div>
+    {% endif %}
 
     {% set consignment_columns = [
       {"key": "buyer", "label": t.buyer, "cell_class": "font-semibold text-[#122B46]"},
@@ -19,6 +29,11 @@
       {"key": "lot_count", "label": t.lot_count},
       {"key": "status", "label": t.status}
     ] %}
+    {% if can_manage_exports %}
+      {% set consignment_columns = consignment_columns + [
+        {"key": "certificate_url", "label": "Certificate", "kind": "link", "link_text": "Download PDF"}
+      ] %}
+    {% endif %}
     {{ data_table(consignment_columns, consignments, caption=t.consignments_caption, empty_message=t.no_consignments) }}
   </div>
 {% endblock %}
