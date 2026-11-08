@@ -162,6 +162,12 @@
             <a href="/users" {% if active_page == 'users' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'users' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
               <span aria-hidden="true">♙</span><span>{{ t.users }}</span>
             </a>
+            <a href="/payments" {% if active_page == 'payments' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'payments' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
+              <span aria-hidden="true">$</span><span>{{ t.mobile_payments }}</span>
+            </a>
+            <a href="/sms-outbox" {% if active_page == 'sms-outbox' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'sms-outbox' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
+              <span aria-hidden="true">✉</span><span>{{ t.sms_outbox }}</span>
+            </a>
           {% endif %}
         </nav>
       </aside>

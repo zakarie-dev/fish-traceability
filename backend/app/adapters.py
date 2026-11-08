@@ -26,15 +26,17 @@ class MockSMSAdapter:
     def send_sms(self, recipient: str, message: str) -> UUID:
         """Write an SMS to ``sms_outbox`` and return the new message UUID."""
         outbox_id = uuid4()
-        with self._db.begin():
-            self._db.add(
-                SMSOutbox(
-                    id=outbox_id,
-                    recipient=recipient,
-                    message=message,
-                    status="Pending",
-                )
-            )
+        outbox_message = SMSOutbox(
+            id=outbox_id,
+            recipient=recipient,
+            message=message,
+            status="Pending",
+        )
+        if self._db.in_transaction():
+            self._db.add(outbox_message)
+        else:
+            with self._db.begin():
+                self._db.add(outbox_message)
         return outbox_id
 
 

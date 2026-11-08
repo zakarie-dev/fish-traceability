@@ -263,6 +263,43 @@ class SMSOutbox(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="Pending")
 
 
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "provider IN ('EVC Plus', 'Zaad')",
+            name="payment_transactions_provider_check",
+        ),
+        CheckConstraint(
+            "amount > 0",
+            name="payment_transactions_amount_check",
+        ),
+        CheckConstraint(
+            "status IN ('Successful')",
+            name="payment_transactions_status_check",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    phone_number: Mapped[str] = mapped_column(String, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String, nullable=False)
+    reference: Mapped[str] = mapped_column(String, nullable=False)
+    transaction_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="Successful")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 

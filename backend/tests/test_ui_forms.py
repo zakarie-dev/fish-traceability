@@ -24,8 +24,10 @@ from app.models import (
     LandingSite,
     Lot,
     LotLink,
+    PaymentTransaction,
     ProcessingStep,
     Species,
+    SMSOutbox,
     TemperatureLog,
     User,
     Vessel,
@@ -898,6 +900,143 @@ def test_recall_marks_lot_and_consignment_ineligible_for_export(
         assert recalled_consignment is not None
         assert recalled_consignment.status == "Recalled"
         assert ConsignmentService(db).get_eligible_lots() == []
+
+
+def test_mock_payment_persists_receipt_and_queues_sms(client_and_session):
+    client, test_session, _ids = client_and_session
+
+    page = client.get("/payments")
+    assert page.status_code == 200
+    assert "EVC Plus" in page.text
+    assert "Zaad" in page.text
+    assert "no money is transferred" in page.text
+
+    response = client.post(
+        "/payments",
+        data={
+            "provider": "EVC Plus",
+            "phone_number": "+252 63 0000000",
+            "amount": "25.50",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/payments?receipt=")
+
+    with test_session() as db:
+        payment = db.scalar(select(PaymentTransaction))
+        sms = db.scalar(select(SMSOutbox))
+        assert payment is not None
+        assert payment.provider == "EVC Plus"
+        assert payment.phone_number == "+252 63 0000000"
+        assert payment.amount == Decimal("25.50")
+        assert payment.currency == "USD"
+        assert payment.status == "Successful"
+        assert payment.transaction_id.startswith("MOCK-")
+        assert sms is not None
+        assert sms.recipient == payment.phone_number
+        assert "Payment received" in sms.message
+        assert payment.reference in sms.message
+
+    receipt_page = client.get(response.headers["location"])
+    assert receipt_page.status_code == 200
+    assert "Payment Successful" in receipt_page.text
+    assert "25.50 USD" in receipt_page.text
+
+    outbox_page = client.get("/sms-outbox")
+    assert outbox_page.status_code == 200
+    assert "Payment received" in outbox_page.text
+    assert "+252 63 0000000" in outbox_page.text
+
+
+def test_mock_payment_rejects_invalid_values_without_saving(
+    client_and_session,
+):
+    client, test_session, _ids = client_and_session
+    response = client.post(
+        "/payments",
+        data={
+            "provider": "Invalid provider",
+            "phone_number": " ",
+            "amount": "-1",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Choose a provider" in response.text
+    with test_session() as db:
+        assert db.scalar(select(PaymentTransaction)) is None
+        assert db.scalar(select(SMSOutbox)) is None
+
+
+def test_admin_sidebar_links_to_payments_and_sms_outbox(client_and_session):
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, _, ids = client_and_session
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["officer_id"],
+        role="Admin",
+    )
+
+    response = client.get("/payments")
+
+    assert response.status_code == 200
+    assert 'href="/payments"' in response.text
+    assert 'href="/sms-outbox"' in response.text
+
+
+def test_passing_inspection_queues_sms_to_vessel_owner(client_and_session):
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, test_session, ids = client_and_session
+    lot_id = uuid4()
+    with test_session.begin() as db:
+        vessel = db.get(Vessel, ids["vessel_id"])
+        assert vessel is not None
+        vessel.owner_phone = "+252 63 0000000"
+        catch = Catch(
+            id=uuid4(),
+            vessel_id=ids["vessel_id"],
+            officer_id=ids["officer_id"],
+            landing_site_id=ids["site_id"],
+            catch_date=date(2026, 11, 1),
+            landing_date=date(2026, 11, 2),
+            catch_area="Somali Basin",
+            gear_used="Longline",
+        )
+        db.add(catch)
+        db.flush()
+        db.add(
+            Lot(
+                id=lot_id,
+                lot_code="LOT-INSPECTION-SMS",
+                catch_id=catch.id,
+                species_id=ids["species_id"],
+                current_weight=Decimal("10.00"),
+                status="Available",
+            )
+        )
+
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["inspector_id"],
+        role="Inspector",
+    )
+    response = client.post(
+        f"/lots/{lot_id}/inspections",
+        data={
+            "result": "pass",
+            "grade": "A",
+            "inspector_id": str(ids["inspector_id"]),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    with test_session() as db:
+        sms = db.scalar(select(SMSOutbox))
+        assert sms is not None
+        assert sms.recipient == "+252 63 0000000"
+        assert sms.message == "Lot inspection passed: LOT-INSPECTION-SMS."
 
 
 def test_vessel_creation_records_authenticated_actor(client_and_session):

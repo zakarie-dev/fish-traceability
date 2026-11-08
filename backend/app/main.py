@@ -16,6 +16,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.adapters import MockPaymentAdapter, MockSMSAdapter, PaymentProvider
 from app.config import PUBLIC_TRACE_BASE_URL
 from app.database import get_db
 from app.dependencies import AuthenticatedHTMLUser, require_html_user
@@ -26,8 +27,10 @@ from app.models import (
     Inspection,
     LandingSite,
     Lot,
+    PaymentTransaction,
     ProcessingStep,
     Species,
+    SMSOutbox,
     TemperatureLog,
     User,
     Vessel,
@@ -959,6 +962,18 @@ def inspect_lot_from_form(
                         inspected_at=inspected_at,
                     )
                 )
+                if result == "pass" and lot.catch_id is not None:
+                    catch = db.get(Catch, lot.catch_id)
+                    vessel = (
+                        db.get(Vessel, catch.vessel_id)
+                        if catch is not None
+                        else None
+                    )
+                    if vessel is not None and vessel.owner_phone:
+                        MockSMSAdapter(db).send_sms(
+                            recipient=vessel.owner_phone,
+                            message=f"Lot inspection passed: {lot.lot_code}.",
+                        )
     if validation_error is not None:
         return _render_lot_detail(
             request,
@@ -1814,6 +1829,153 @@ def logout() -> RedirectResponse:
     """Clear the browser authentication cookie and return to login."""
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(key="access_token", path="/")
+    return response
+
+
+@app.get("/payments", response_class=HTMLResponse, include_in_schema=False)
+def payments_page(
+    request: Request,
+    receipt: UUID | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render the authenticated mock mobile-money payment form and receipt."""
+    language = _selected_language(request)
+    payment = db.get(PaymentTransaction, receipt) if receipt is not None else None
+    if receipt is not None and payment is None:
+        raise HTTPException(status_code=404, detail="Payment receipt not found")
+    response = templates.TemplateResponse(
+        request=request,
+        name="payments.html",
+        context={
+            "language": language,
+            "t": get_translations(language),
+            "active_page": "payments",
+            "current_user": current_user,
+            "receipt": payment,
+            "error": None,
+            "form_data": {},
+        },
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+@app.post("/payments", response_class=HTMLResponse, include_in_schema=False)
+def create_payment(
+    request: Request,
+    provider: str = Form(...),
+    phone_number: str = Form(...),
+    amount: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    """Create a mock mobile-money receipt and queue its SMS atomically."""
+    language = _selected_language(request)
+    translations = get_translations(language)
+    form_data = {
+        "provider": provider,
+        "phone_number": phone_number,
+        "amount": amount,
+    }
+
+    payment_providers: dict[str, PaymentProvider] = {
+        "EVC Plus": "EVC Plus",
+        "Zaad": "Zaad",
+    }
+    payment_provider = payment_providers.get(provider)
+    try:
+        parsed_amount = Decimal(amount.strip())
+    except InvalidOperation:
+        parsed_amount = Decimal("NaN")
+
+    if (
+        payment_provider is None
+        or not phone_number.strip()
+        or len(phone_number.strip()) > 32
+        or not parsed_amount.is_finite()
+        or parsed_amount <= 0
+        or parsed_amount.as_tuple().exponent < -2
+        or parsed_amount >= Decimal("10000000000")
+    ):
+        response = templates.TemplateResponse(
+            request=request,
+            name="payments.html",
+            context={
+                "language": language,
+                "t": translations,
+                "active_page": "payments",
+                "current_user": current_user,
+                "receipt": None,
+                "error": translations["payment_form_error"],
+                "form_data": form_data,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+        _set_language_cookie(response, language)
+        return response
+
+    normalized_phone = phone_number.strip()
+    reference = f"PAY-{uuid4().hex[:12].upper()}"
+    payment_result = MockPaymentAdapter().pay(
+        provider=payment_provider,
+        amount=parsed_amount,
+        currency="USD",
+        phone_number=normalized_phone,
+        reference=reference,
+    )
+    payment_id = uuid4()
+    with db.begin():
+        db.add(
+            PaymentTransaction(
+                id=payment_id,
+                user_id=current_user.id,
+                provider=payment_result.provider,
+                phone_number=normalized_phone,
+                amount=payment_result.amount,
+                currency=payment_result.currency,
+                reference=payment_result.reference,
+                transaction_id=payment_result.transaction_id,
+                status="Successful",
+            )
+        )
+        MockSMSAdapter(db).send_sms(
+            recipient=normalized_phone,
+            message=(
+                f"Payment received: {payment_result.amount:.2f} "
+                f"{payment_result.currency} via {payment_result.provider}. "
+                f"Reference: {payment_result.reference}."
+            ),
+        )
+
+    return RedirectResponse(
+        url=f"/payments?receipt={payment_id}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@app.get("/sms-outbox", response_class=HTMLResponse, include_in_schema=False)
+def sms_outbox_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    """Render queued SMS records for authenticated staff."""
+    language = _selected_language(request)
+    response = templates.TemplateResponse(
+        request=request,
+        name="sms_outbox.html",
+        context={
+            "language": language,
+            "t": get_translations(language),
+            "active_page": "sms-outbox",
+            "current_user": current_user,
+            "messages": list(
+                db.scalars(select(SMSOutbox).order_by(SMSOutbox.created_at.desc()))
+            ),
+        },
+    )
+    _set_language_cookie(response, language)
     return response
 
 

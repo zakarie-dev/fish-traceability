@@ -50,6 +50,8 @@ def test_sidebar_destinations_have_get_routes():
         "/profile",
         "/settings",
         "/logout",
+        "/payments",
+        "/sms-outbox",
     }.issubset(destinations)
     assert destinations <= get_paths
 
@@ -67,6 +69,8 @@ def test_sidebar_pages_require_authentication(client):
         "/inspections",
         "/profile",
         "/settings",
+        "/payments",
+        "/sms-outbox",
     )
     for path in protected_paths:
         response = client.get(path, follow_redirects=False)

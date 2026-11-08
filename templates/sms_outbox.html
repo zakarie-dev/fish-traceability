@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "components/_table.html" import data_table %}
+
+{% block title %}{{ t.sms_outbox }} | Somali Fish Trace{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-7xl space-y-6">
+    <header>
+      <p class="text-sm font-semibold text-[#267F82]">{{ t.quality_compliance }}</p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.sms_outbox }}</h1>
+      <p class="mt-2 text-sm text-slate-500">{{ t.sms_outbox_description }}</p>
+    </header>
+
+    {% set sms_columns = [
+      {"key": "created_at", "label": t.recorded_at},
+      {"key": "recipient", "label": t.recipient},
+      {"key": "message", "label": t.message},
+      {"key": "status", "label": t.status}
+    ] %}
+    {{ data_table(sms_columns, messages, caption=t.sms_outbox, empty_message=t.no_sms_messages) }}
+  </div>
+{% endblock %}

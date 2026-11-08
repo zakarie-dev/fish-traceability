@@ -44,7 +44,8 @@ sample records. Never use its shared demo password in a production environment.
 For an existing database, apply the new numbered migrations before restarting
 the app; `005_processing_export_audit.sql` adds inspection timestamps and the
 audit log, and `006_temperature_type.sql` adds chilled/frozen temperature
-classification.
+classification. `007_mock_payments.sql` adds persistence for simulated mobile
+money payment receipts.
 
 ### 3. Run the application
 
@@ -72,6 +73,35 @@ All currently use the seed-only password `ChangeMe-Seed-Only-2026!`.
 
 These are local/demo credentials, not production accounts. Change or remove
 them before deploying.
+
+## Mock mobile payments and SMS
+
+The authenticated `/payments` page simulates payments through **EVC Plus** and
+**Zaad**. It accepts a phone number and a positive amount in USD, stores a
+receipt in `payment_transactions`, and queues a confirmation message in the
+existing `sms_outbox` table. The authenticated `/sms-outbox` page lists queued
+messages; Admins have sidebar links to both pages.
+
+These are demo adapters only: they do not contact mobile-money or SMS
+providers and do not transfer money or deliver text messages. Apply
+`backend/migrations/007_mock_payments.sql` after migrations 001–006 before
+using payments with an existing database.
+
+## Seeding pitch/demo data
+
+After applying migrations 001–007 and creating the demo users with
+`002_seed.sql`, verify that `backend/.env` points to a demo/development
+database, then run this from the repository root:
+
+```powershell
+python backend\seed_demo_data.py --confirm
+```
+
+The script adds the showcase catch-to-export workflow, mock payment receipts,
+and SMS outbox entries in one transaction. It does not delete existing data,
+and a complete showcase dataset is detected on subsequent runs. The `--confirm`
+flag is required as a safeguard against accidentally seeding a production
+database.
 
 ## Tests
 
