@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES, JWT_ALGORITHM, get_jwt_secret_key
+from app.dependencies import require_html_user
 from app.main import app
 from app.models import (
     Base,
@@ -22,6 +23,7 @@ from app.models import (
     Inspection,
     LandingSite,
     Lot,
+    LotLink,
     ProcessingStep,
     Species,
     TemperatureLog,
@@ -42,7 +44,16 @@ def client_and_session():
     Base.metadata.create_all(engine)
     test_session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
-    site_id, species_id, officer_id, inspector_id, vessel_id, exporter_id = (
+    (
+        site_id,
+        species_id,
+        officer_id,
+        processor_id,
+        inspector_id,
+        vessel_id,
+        exporter_id,
+    ) = (
+        uuid4(),
         uuid4(),
         uuid4(),
         uuid4(),
@@ -60,6 +71,12 @@ def client_and_session():
                     email="officer@test.local",
                     hashed_password="unused",
                     role="Officer",
+                ),
+                User(
+                    id=processor_id,
+                    email="processor@test.local",
+                    hashed_password="unused",
+                    role="Processor",
                 ),
                 User(
                     id=inspector_id,
@@ -114,6 +131,7 @@ def client_and_session():
                 "site_id": site_id,
                 "species_id": species_id,
                 "officer_id": officer_id,
+                "processor_id": processor_id,
                 "inspector_id": inspector_id,
                 "vessel_id": vessel_id,
                 "exporter_id": exporter_id,
@@ -121,6 +139,7 @@ def client_and_session():
         )
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(require_html_user, None)
         engine.dispose()
 
 
@@ -224,6 +243,7 @@ def test_login_supports_html_cookie_and_json_api(client_and_session, monkeypatch
 
 def test_catch_and_lot_forms_write_records_transactionally(client_and_session):
     client, test_session, ids = client_and_session
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
 
     catch_page = client.get("/catches")
     assert catch_page.status_code == 200
@@ -260,6 +280,10 @@ def test_catch_and_lot_forms_write_records_transactionally(client_and_session):
     assert "Record a catch" in dashboard.text
     assert f"/lots/{lot_id}" in dashboard.text
 
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["processor_id"],
+        role="Processor",
+    )
     invalid_split = client.post(
         f"/lots/{lot_id}/split",
         data={
@@ -293,15 +317,23 @@ def test_catch_and_lot_forms_write_records_transactionally(client_and_session):
             )
         )
         assert split_audit is not None
-        assert split_audit.user_id == ids["officer_id"]
+        assert split_audit.user_id == ids["processor_id"]
 
     temperature = client.post(
         f"/lots/{lot_id}/temperatures",
-        data={"temp_celsius": "-2.50", "location": "Cold store"},
+        data={
+            "temp_celsius": "-2.50",
+            "temperature_type": "Chilled",
+            "location": "Cold store",
+        },
         follow_redirects=False,
     )
     assert temperature.status_code == 303
 
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["inspector_id"],
+        role="Inspector",
+    )
     inspection = client.post(
         f"/lots/{lot_id}/inspections",
         data={
@@ -324,10 +356,198 @@ def test_catch_and_lot_forms_write_records_transactionally(client_and_session):
     assert "Pass" in detail_page.text
 
 
+def test_role_gated_forms_are_hidden_and_write_routes_are_protected(
+    client_and_session,
+):
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, test_session, ids = client_and_session
+    with test_session.begin() as db:
+        lot = Lot(
+            lot_code="LOT-ROLE-1",
+            catch_id=None,
+            species_id=ids["species_id"],
+            current_weight=Decimal("10.00"),
+            status="Available",
+        )
+        db.add(lot)
+        db.flush()
+        lot_id = lot.id
+
+    def set_role(role, user_id):
+        app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+            id=user_id,
+            role=role,
+        )
+
+    set_role("Officer", ids["officer_id"])
+    officer_detail = client.get(f"/lots/{lot_id}")
+    assert officer_detail.status_code == 200
+    assert "Log temperature" in officer_detail.text
+    assert "Split lot" not in officer_detail.text
+    assert "Record processing step" not in officer_detail.text
+    assert "Inspect lot" not in officer_detail.text
+    assert client.get("/catches").status_code == 200
+
+    assert client.post(
+        f"/lots/{lot_id}/split",
+        data={"child_weights": "10", "loss_weight": "0"},
+    ).status_code == 403
+    assert client.post(
+        f"/lots/{lot_id}/processing",
+        data={"step_type": "Filleting", "weight_in": "10", "weight_out": "9"},
+    ).status_code == 403
+    assert client.post(
+        f"/lots/{lot_id}/inspections",
+        data={
+            "result": "pass",
+            "grade": "A",
+            "inspector_id": str(ids["inspector_id"]),
+        },
+    ).status_code == 403
+
+    set_role("Admin", ids["officer_id"])
+    assert client.get("/catches").status_code == 403
+    assert client.post(
+        "/catches",
+        data={
+            "vessel_id": str(ids["vessel_id"]),
+            "species_id": str(ids["species_id"]),
+            "weight": "10",
+            "catch_area": "Berbera offshore",
+            "catch_date": "2026-11-01",
+            "landing_date": "2026-11-02",
+            "landing_site_id": str(ids["site_id"]),
+            "officer_id": str(ids["officer_id"]),
+        },
+    ).status_code == 403
+    assert "Recall Lot" in client.get(f"/lots/{lot_id}").text
+
+    set_role("Officer", ids["officer_id"])
+    assert client.post(
+        "/vessels/form",
+        data={
+            "name": "Unauthorized vessel",
+            "reg_number": "TEST-UNAUTHORIZED",
+            "license_number": "TEST-UNAUTHORIZED-LIC",
+            "license_expiry": "2030-12-31",
+            "owner_name": "Test Owner",
+            "home_port": "Berbera",
+            "gear_type": "Longline",
+        },
+    ).status_code == 403
+
+    set_role("Processor", ids["processor_id"])
+    processor_detail = client.get(f"/lots/{lot_id}")
+    assert "Split lot" in processor_detail.text
+    assert "Record processing step" in processor_detail.text
+    assert "Inspect lot" not in processor_detail.text
+
+    set_role("Inspector", ids["inspector_id"])
+    inspector_detail = client.get(f"/lots/{lot_id}")
+    assert "Inspect lot" in inspector_detail.text
+    assert "Split lot" not in inspector_detail.text
+    assert "Record processing step" not in inspector_detail.text
+    assert "Recall Lot" in inspector_detail.text
+
+
+def test_temperature_breach_thresholds_depend_on_storage_type(client_and_session):
+    client, test_session, ids = client_and_session
+    with test_session.begin() as db:
+        lot = Lot(
+            lot_code="LOT-TEMP-THRESHOLD",
+            catch_id=None,
+            species_id=ids["species_id"],
+            current_weight=Decimal("10.00"),
+            status="Available",
+        )
+        db.add(lot)
+        db.flush()
+        lot_id = lot.id
+
+    readings = (
+        ("4.00", "Chilled", False),
+        ("4.01", "Chilled", True),
+        ("-18.00", "Frozen", False),
+        ("-17.99", "Frozen", True),
+    )
+    for temperature, temperature_type, _expected_breach in readings:
+        response = client.post(
+            f"/lots/{lot_id}/temperatures",
+            data={
+                "temp_celsius": temperature,
+                "temperature_type": temperature_type,
+                "location": "Test cold store",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+    with test_session() as db:
+        saved = {
+            (str(log.temp_celsius), log.temperature_type): log.is_breach
+            for log in db.scalars(
+                select(TemperatureLog).where(TemperatureLog.lot_id == lot_id)
+            )
+        }
+    assert saved == {
+        (temperature, temperature_type): expected_breach
+        for temperature, temperature_type, expected_breach in readings
+    }
+
+
+def test_admin_can_create_vessel_from_browser_form(client_and_session):
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, test_session, ids = client_and_session
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["officer_id"],
+        role="Admin",
+    )
+    response = client.post(
+        "/vessels/form",
+        data={
+            "name": "Daryeel Test",
+            "reg_number": "TEST-REG-200",
+            "license_number": "TEST-LIC-200",
+            "license_expiry": "2030-12-31",
+            "owner_name": "Test Owner",
+            "home_port": "Berbera",
+            "gear_type": "Longline",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/vessels?created=1"
+    with test_session() as db:
+        vessel = db.scalar(
+            select(Vessel).where(Vessel.reg_number == "TEST-REG-200")
+        )
+        assert vessel is not None
+        assert vessel.license_number == "TEST-LIC-200"
+        assert vessel.owner_name == "Test Owner"
+        assert vessel.home_port == "Berbera"
+        assert vessel.gear_type == "Longline"
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "vessel.create",
+                AuditLog.entity_id == vessel.id,
+            )
+        )
+        assert audit is not None
+
+
 def test_processing_step_validates_weights_and_warns_for_low_filleting_yield(
     client_and_session,
 ):
     client, test_session, ids = client_and_session
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["processor_id"],
+        role="Processor",
+    )
     with test_session.begin() as db:
         lot = Lot(
             lot_code="LOT-PROCESS-1",
@@ -399,6 +619,7 @@ def test_breach_requires_a_later_pass_before_export_and_creates_consignment(
                     TemperatureLog(
                         lot_id=lot_id,
                         temp_celsius=Decimal("5.00"),
+                        temperature_type="Chilled",
                         location="Cold store",
                         is_breach=True,
                         recorded_at=breach_time,
@@ -429,6 +650,10 @@ def test_breach_requires_a_later_pass_before_export_and_creates_consignment(
         rejected = client.post("/consignments", data=form_data)
         assert rejected.status_code == 400
 
+        app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+            id=ids["inspector_id"],
+            role="Inspector",
+        )
         inspected = client.post(
             f"/lots/{lot_id}/inspections",
             data={
@@ -440,6 +665,10 @@ def test_breach_requires_a_later_pass_before_export_and_creates_consignment(
         )
         assert inspected.status_code == 303
 
+        app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+            id=ids["exporter_id"],
+            role="Exporter",
+        )
         page = client.get("/consignments/new")
         assert "LOT-BREACH-1" in page.text
         created = client.post(
@@ -513,14 +742,17 @@ def test_authenticated_merge_records_audit_event(client_and_session):
         ]
         db.add_all(lots)
         db.flush()
-        lot_ids = [str(lot.id) for lot in lots]
+        lot_ids = [lot.id for lot in lots]
 
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
         id=ids["officer_id"],
         role="Processor",
     )
     try:
-        response = client.post("/lots/merge", json={"lot_ids": lot_ids})
+        response = client.post(
+            "/lots/merge",
+            json={"lot_ids": [str(lot_id) for lot_id in lot_ids]},
+        )
         assert response.status_code == 200
         merged_id = UUID(response.json()["merged_lot_id"])
         with test_session() as db:
@@ -537,6 +769,135 @@ def test_authenticated_merge_records_audit_event(client_and_session):
             assert audit.user_id == ids["officer_id"]
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_processor_can_merge_same_species_lots_from_browser(client_and_session):
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, test_session, ids = client_and_session
+    with test_session.begin() as db:
+        lots = [
+            Lot(
+                lot_code=f"LOT-UI-MERGE-{index}",
+                catch_id=None,
+                species_id=ids["species_id"],
+                current_weight=Decimal(weight),
+                status="Available",
+            )
+            for index, weight in ((1, "5.00"), (2, "6.25"))
+        ]
+        db.add_all(lots)
+        db.flush()
+        lot_ids = [lot.id for lot in lots]
+
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["processor_id"],
+        role="Processor",
+    )
+    page = client.get("/lots/merge-selection")
+    assert page.status_code == 200
+    assert "Merge selected lots · Tuna" in page.text
+
+    response = client.post(
+        "/lots/merge-form",
+        data={"lot_ids": [str(lot_id) for lot_id in lot_ids]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/lots?merged=1"
+    with test_session() as db:
+        merged = db.scalar(
+            select(Lot).where(Lot.current_weight == Decimal("11.25"))
+        )
+        assert merged is not None
+        assert merged.status == "Available"
+        parents = list(db.scalars(select(Lot).where(Lot.id.in_(lot_ids))))
+        assert all(parent.status == "Merged" for parent in parents)
+
+
+def test_inspector_can_recall_from_lot_detail(client_and_session):
+    from unittest.mock import patch
+
+    from app.dependencies import AuthenticatedHTMLUser, require_html_user
+
+    client, _, ids = client_and_session
+    lot_id = uuid4()
+    app.dependency_overrides[require_html_user] = lambda: AuthenticatedHTMLUser(
+        id=ids["inspector_id"],
+        role="Inspector",
+    )
+    with patch("app.main.TraceabilityService.recall_lot") as recall:
+        response = client.post(
+            f"/lots/{lot_id}/recall",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/lots/{lot_id}?success=recall"
+    recall.assert_called_once_with(lot_id)
+
+
+def test_recall_marks_lot_and_consignment_ineligible_for_export(
+    client_and_session,
+    monkeypatch,
+):
+    from app.repositories.lot_repository import LotRepository
+    from app.services.consignment_service import ConsignmentService
+    from app.services.traceability_service import TraceabilityService
+
+    _, test_session, ids = client_and_session
+    with test_session.begin() as db:
+        lot = Lot(
+            lot_code="LOT-RECALL-EXPORT",
+            catch_id=None,
+            species_id=ids["species_id"],
+            current_weight=Decimal("10.00"),
+            status="Available",
+        )
+        db.add(lot)
+        db.flush()
+        lot_id = lot.id
+        db.add(
+            Inspection(
+                lot_id=lot_id,
+                inspector_id=ids["inspector_id"],
+                grade="A",
+                passed=True,
+            )
+        )
+
+    with test_session() as db:
+        assert [lot.id for lot in ConsignmentService(db).get_eligible_lots()] == [
+            lot_id
+        ]
+
+    with test_session.begin() as db:
+        consignment = Consignment(
+            buyer_name="Test Buyer",
+            destination_country="Somalia",
+            shipping_date=date(2026, 11, 20),
+            container_number="TEST-RECALL-1",
+        )
+        db.add(consignment)
+        db.flush()
+        db.add(ConsignmentLot(consignment_id=consignment.id, lot_id=lot_id))
+
+    monkeypatch.setattr(
+        LotRepository,
+        "get_descendant_ids",
+        lambda _self, _lot_id: [lot_id],
+    )
+    with test_session() as db:
+        TraceabilityService(db).recall_lot(lot_id)
+
+    with test_session() as db:
+        recalled_lot = db.get(Lot, lot_id)
+        recalled_consignment = db.scalar(select(Consignment))
+        assert recalled_lot is not None
+        assert recalled_lot.status == "Recalled"
+        assert recalled_consignment is not None
+        assert recalled_consignment.status == "Recalled"
+        assert ConsignmentService(db).get_eligible_lots() == []
 
 
 def test_vessel_creation_records_authenticated_actor(client_and_session):

@@ -19,7 +19,7 @@ def _dashboard_data():
                 "species": "Tuna",
                 "weight": "10.00 kg",
                 "status": "Available",
-                "view_url": "/trace/LOT-TEST-1",
+                "view_url": "/trace?lot_code=LOT-TEST-1",
                 "detail_url": "/lots/00000000-0000-0000-0000-000000000001",
             }
         ],

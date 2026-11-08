@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
@@ -41,7 +42,7 @@ class DashboardService:
                     "species": species,
                     "weight": f"{weight:,.2f} kg",
                     "status": status,
-                    "view_url": f"/trace/{lot_code}",
+                    "view_url": f"/trace?lot_code={quote(lot_code, safe='')}",
                     "detail_url": f"/lots/{lot_id}",
                 }
                 for lot_id, lot_code, species, weight, status in recent_lot_rows

@@ -175,6 +175,12 @@ class ProcessingStep(Base):
 
 class TemperatureLog(Base):
     __tablename__ = "temperature_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "temperature_type IN ('Chilled', 'Frozen')",
+            name="temperature_logs_temperature_type_check",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
@@ -183,6 +189,9 @@ class TemperatureLog(Base):
         PostgreSQLUUID(as_uuid=True), ForeignKey("lots.id", ondelete="CASCADE")
     )
     temp_celsius: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    temperature_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="Chilled"
+    )
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

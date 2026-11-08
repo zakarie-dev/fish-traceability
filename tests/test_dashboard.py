@@ -74,7 +74,7 @@ def test_dashboard_renders_database_metrics_and_chart_data(authenticated_client)
                 "species": "Lobster",
                 "weight": "25.50 kg",
                 "status": "Available",
-                "view_url": "/trace/LOT-123",
+                "view_url": "/trace?lot_code=LOT-123",
                 "detail_url": f"/lots/{uuid4()}",
             }
         ],
@@ -91,7 +91,7 @@ def test_dashboard_renders_database_metrics_and_chart_data(authenticated_client)
     assert "[450.0, 12000.0]" in response.text
     assert '["Berbera", "Bosaso"]' in response.text
     assert "LOT-123" in response.text
-    assert 'href="/trace/LOT-123"' in response.text
+    assert 'href="/trace?lot_code=LOT-123"' in response.text
     assert "type: 'pie'" in response.text
     assert "type: 'bar'" in response.text
 
@@ -138,7 +138,7 @@ def test_dashboard_service_combines_database_metrics():
             "species": "Lobster",
             "weight": "25.50 kg",
             "status": "Available",
-            "view_url": "/trace/LOT-123",
+            "view_url": "/trace?lot_code=LOT-123",
             "detail_url": f"/lots/{recent_lot_id}",
         }
     ]

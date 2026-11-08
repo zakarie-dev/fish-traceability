@@ -45,4 +45,5 @@ def test_merge_same_species_sums_weights(monkeypatch):
     merged = session.added[0]
     assert merged.id == merged_id
     assert merged.current_weight == Decimal("6.00")
+    assert merged.status == "Available"
     assert all(lot.status == "Merged" for lot in lots)

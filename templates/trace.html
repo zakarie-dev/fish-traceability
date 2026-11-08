@@ -103,6 +103,7 @@
                       {% for reading in lot.temperature_logs %}
                         <li class="flex flex-wrap gap-x-2">
                           <span>{{ reading.temp_celsius }} °C</span>
+                          <span>{{ t.chilled if reading.temperature_type == "Chilled" else t.frozen }}</span>
                           <span>{{ reading.location }}</span>
                           <time datetime="{{ reading.recorded_at.isoformat() }}">{{ reading.recorded_at }}</time>
                           {% if reading.is_breach %}<span class="font-semibold text-red-600">{{ t.temperature_alerts }}</span>{% endif %}

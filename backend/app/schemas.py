@@ -84,6 +84,7 @@ class TraceProcessingStep(BaseModel):
 class TraceTemperatureLog(BaseModel):
     id: UUID
     temp_celsius: Decimal
+    temperature_type: str
     recorded_at: datetime
     location: str
     is_breach: bool

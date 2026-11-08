@@ -194,7 +194,7 @@ class LotService:
                 current_weight=sum(
                     (Decimal(lot.current_weight) for lot in parents), Decimal("0")
                 ),
-                status="Merged",
+                status="Available",
                 parent_lot_id=None,
             )
             self._lots.add_lots([merged_lot])

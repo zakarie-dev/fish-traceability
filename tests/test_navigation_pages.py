@@ -188,6 +188,7 @@ def test_processing_temperature_inspection_pages_render_rows(authenticated_clien
     )
     temperature = SimpleNamespace(
         temp_celsius=Decimal("2.50"),
+        temperature_type="Chilled",
         location="Berbera cold store",
         recorded_at=date(2026, 11, 5),
         is_breach=False,

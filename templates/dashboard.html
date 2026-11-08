@@ -12,7 +12,9 @@
         <h1 class="mt-1 text-2xl font-bold tracking-tight text-[#122B46] sm:text-3xl">{{ t.dashboard }}</h1>
         <p class="mt-2 text-sm text-slate-500">{{ t.dashboard_description }}</p>
       </div>
-      <a href="/catches" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">{{ t.record_catch }}</a>
+      {% if current_user.role == "Officer" %}
+        <a href="/catches" class="inline-flex min-h-11 items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">{{ t.record_catch }}</a>
+      {% endif %}
     </section>
 
     <section aria-label="{{ t.key_statistics }}" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">

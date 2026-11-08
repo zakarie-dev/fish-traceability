@@ -131,9 +131,11 @@
           <a href="/vessels" {% if active_page == 'vessels' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'vessels' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">⌁</span><span>{{ t.vessels }}</span>
           </a>
-          <a href="/catches" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
-            <span aria-hidden="true">◉</span><span>{{ t.catch_records }}</span>
-          </a>
+          {% if current_user is defined and current_user.role == 'Officer' %}
+            <a href="/catches" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-[#F1F8FF] hover:text-[#122B46]">
+              <span aria-hidden="true">◉</span><span>{{ t.catch_records }}</span>
+            </a>
+          {% endif %}
           <a href="/lots" {% if active_page == 'lots' %}aria-current="page"{% endif %} class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors {% if active_page == 'lots' %}bg-[#122B46] text-white{% else %}text-slate-600 hover:bg-[#F1F8FF] hover:text-[#122B46]{% endif %}">
             <span aria-hidden="true">▤</span><span>{{ t.lots }}</span>
           </a>

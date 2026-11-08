@@ -42,8 +42,9 @@ Run the SQL files in `backend/migrations/` in numeric order using the Supabase
 SQL Editor or a PostgreSQL client. `002_seed.sql` creates demo-only users and
 sample records. Never use its shared demo password in a production environment.
 For an existing database, apply the new numbered migrations before restarting
-the app; `005_processing_export_audit.sql` adds the Exporter role, inspection
-timestamps, and the audit log used by these workflows.
+the app; `005_processing_export_audit.sql` adds inspection timestamps and the
+audit log, and `006_temperature_type.sql` adds chilled/frozen temperature
+classification.
 
 ### 3. Run the application
 

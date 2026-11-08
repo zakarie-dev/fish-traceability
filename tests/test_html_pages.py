@@ -5,6 +5,7 @@ from uuid import uuid4
 from unittest.mock import patch
 
 from fastapi import HTTPException, status
+from fastapi.responses import HTMLResponse
 
 from app.database import get_db
 from app.main import app
@@ -72,6 +73,7 @@ def test_authenticated_list_pages_render_database_rows(authenticated_client):
     assert "LOT-BRB-20261104-001" in lots_response.text
     assert "Yellowfin Tuna" in lots_response.text
     assert 'value="tuna"' in lots_response.text
+    assert 'href="/trace?lot_code=LOT-BRB-20261104-001"' in lots_response.text
     assert f'href="/lots/{lot_id}"' in lots_response.text
     assert 'href="/lots" aria-current="page"' in lots_response.text
 
@@ -110,6 +112,7 @@ def test_public_trace_page_renders_journey_without_login(client):
     )
     reading = SimpleNamespace(
         temp_celsius=Decimal("2.50"),
+        temperature_type="Chilled",
         location="Berbera cold store",
         recorded_at=datetime(2026, 11, 2, tzinfo=timezone.utc),
         is_breach=False,
@@ -155,3 +158,17 @@ def test_public_trace_page_shows_not_found_for_unknown_code(client):
     assert response.status_code == 404
     assert "UNKNOWN-LOT" in response.text
     assert "No traceability record was found" in response.text
+
+
+def test_lot_manage_route_accepts_database_uuid(authenticated_client):
+    lot_id = uuid4()
+    _set_database_override(SimpleNamespace())
+    with patch(
+        "app.main._render_lot_detail",
+        return_value=HTMLResponse(f"<h1>{lot_id}</h1>"),
+    ) as render_detail:
+        response = authenticated_client.get(f"/lots/{lot_id}")
+
+    assert response.status_code == 200
+    assert str(lot_id) in response.text
+    assert render_detail.call_args.args[2] == lot_id

@@ -11,8 +11,13 @@
         <p class="mt-2 text-sm text-slate-600">{{ species_name }} · {{ lot.current_weight }} kg · {{ lot.status }}</p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <a href="/trace/{{ lot.lot_code }}" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-[#267F82]/40 bg-white px-4 py-2 text-sm font-semibold text-[#267F82] transition hover:bg-[#F1F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82]">View trace</a>
+        <a href="/trace?lot_code={{ lot.lot_code|urlencode }}" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg border border-[#267F82]/40 bg-white px-4 py-2 text-sm font-semibold text-[#267F82] transition hover:bg-[#F1F8FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#267F82]">View trace</a>
         <a href="/lots/{{ lot.id }}/label" class="inline-flex min-h-10 items-center justify-center self-start rounded-lg bg-[#122B46] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#267F82] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724]">Print QR label</a>
+        {% if current_user.role in ["Admin", "Inspector"] and lot.status != "Recalled" %}
+          <form method="post" action="/lots/{{ lot.id }}/recall" onsubmit="return confirm('{{ t.confirm_recall }}');">
+            <button type="submit" class="inline-flex min-h-10 items-center justify-center rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700">{{ t.recall_lot }}</button>
+          </form>
+        {% endif %}
       </div>
     </header>
 
@@ -27,6 +32,8 @@
       <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Inspection saved successfully.</div>
     {% elif success == "processing" %}
       <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">Processing step recorded successfully.</div>
+    {% elif success == "recall" %}
+      <div role="status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{{ t.recall_completed }}</div>
     {% endif %}
     {% if warning == "low-yield" %}
       <div role="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">Warning: filleting yield is below 40%. Review this processing result.</div>
@@ -39,6 +46,7 @@
 
     {% set form_data = form_data or {} %}
     <section aria-label="Lot actions" class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      {% if current_user.role == "Processor" %}
       <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="mb-5">
           <h2 class="text-lg font-bold text-[#122B46]">Split lot</h2>
@@ -87,6 +95,7 @@
           <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save processing step</button>
         </form>
       </article>
+      {% endif %}
 
       <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="mb-5">
@@ -99,14 +108,23 @@
             <input name="temp_celsius" type="number" min="-999.99" max="999.99" step="0.01" required value="{{ form_data.get('temp_celsius', '') }}" inputmode="decimal" placeholder="e.g. -2.50" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
           </label>
           <label class="block text-sm font-semibold text-[#122B46]">
+            {{ t.temperature_type }}
+            <select name="temperature_type" required class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
+              <option value="">{{ t.choose_temperature_type }}</option>
+              <option value="Chilled" {% if form_data.get('temperature_type') == 'Chilled' %}selected{% endif %}>{{ t.chilled_temperature }}</option>
+              <option value="Frozen" {% if form_data.get('temperature_type') == 'Frozen' %}selected{% endif %}>{{ t.frozen_temperature }}</option>
+            </select>
+          </label>
+          <label class="block text-sm font-semibold text-[#122B46]">
             Location
             <input name="location" type="text" maxlength="255" required value="{{ form_data.get('location', '') }}" placeholder="e.g. Cold storage" class="mt-2 min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#267F82] focus:outline-none focus:ring-2 focus:ring-[#267F82]/20">
           </label>
-          <p class="rounded-lg bg-[#F1F8FF] px-3 py-2 text-xs leading-5 text-[#122B46]">The observation is recorded for traceability. No breach threshold is configured by this form.</p>
+          <p class="rounded-lg bg-[#F1F8FF] px-3 py-2 text-xs leading-5 text-[#122B46]">{{ t.temperature_threshold_help }}</p>
           <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save temperature</button>
         </form>
       </article>
 
+      {% if current_user.role == "Inspector" %}
       <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="mb-5">
           <h2 class="text-lg font-bold text-[#122B46]">Inspect lot</h2>
@@ -142,6 +160,7 @@
           <button type="submit" class="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-gradient-to-r from-[#F36724] to-[#FDBA06] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F36724] focus-visible:ring-offset-2">Save inspection</button>
         </form>
       </article>
+      {% endif %}
     </section>
 
     <section class="grid grid-cols-1 gap-5">
@@ -179,17 +198,18 @@
         <div class="overflow-x-auto">
           <table class="w-full min-w-[480px] text-left text-sm">
             <thead class="text-xs uppercase tracking-wide text-slate-500">
-              <tr><th class="px-5 py-3">Recorded</th><th class="px-5 py-3">Temperature</th><th class="px-5 py-3">Location</th></tr>
+              <tr><th class="px-5 py-3">Recorded</th><th class="px-5 py-3">Temperature</th><th class="px-5 py-3">Type</th><th class="px-5 py-3">Location</th></tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
               {% for log in temperature_logs %}
                 <tr>
                   <td class="px-5 py-3 text-slate-600">{{ log.recorded_at.strftime("%Y-%m-%d %H:%M") }}</td>
                   <td class="px-5 py-3 font-medium text-[#122B46]">{{ log.temp_celsius }} °C{% if log.is_breach %}<span class="ml-2 text-xs font-semibold text-red-700">Breach</span>{% endif %}</td>
+                  <td class="px-5 py-3 text-slate-600">{{ t.chilled if log.temperature_type == "Chilled" else t.frozen }}</td>
                   <td class="px-5 py-3 text-slate-600">{{ log.location }}</td>
                 </tr>
               {% else %}
-                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-500">No temperature readings yet.</td></tr>
+                <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No temperature readings yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>

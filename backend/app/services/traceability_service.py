@@ -83,6 +83,7 @@ class TraceabilityService:
                 TraceTemperatureLog(
                     id=log.id,
                     temp_celsius=log.temp_celsius,
+                    temperature_type=log.temperature_type,
                     recorded_at=log.recorded_at,
                     location=log.location,
                     is_breach=log.is_breach,

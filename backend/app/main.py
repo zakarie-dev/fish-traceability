@@ -11,6 +11,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -36,10 +37,12 @@ from app.routes.certificates import router as certificates_router
 from app.routes.lots import router as lots_router
 from app.routes.traceability import router as traceability_router
 from app.routes.vessels import router as vessels_router
+from app.schemas import VesselCreate
 from app.services.consignment_service import ConsignmentService
 from app.services.dashboard_service import DashboardService
 from app.services.lot_service import LotService
 from app.services.traceability_service import TraceabilityService
+from app.services.vessel_service import VesselService
 from app.translations import TRANSLATIONS, get_translations
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -159,6 +162,7 @@ def _render_lot_detail(
     request: Request,
     db: Session,
     lot_id: UUID,
+    current_user: AuthenticatedHTMLUser,
     *,
     error: str | None = None,
     form_data: dict[str, str] | None = None,
@@ -217,6 +221,7 @@ def _render_lot_detail(
         context={
             "language": language,
             "t": get_translations(language),
+            "current_user": current_user,
             "lot": lot,
             "species_name": species.name if species is not None else "Unknown",
             "temperature_logs": temperature_logs,
@@ -238,6 +243,94 @@ def _render_lot_detail(
             "success": request.query_params.get("success"),
             "warning": request.query_params.get("warning"),
             "form_data": form_data or {},
+        },
+        status_code=status_code,
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+def _render_vessels(
+    request: Request,
+    db: Session,
+    current_user: AuthenticatedHTMLUser,
+    *,
+    error: str | None = None,
+    form_data: dict[str, str] | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    language = _selected_language(request)
+    translations = get_translations(language)
+    vessels = list(db.scalars(select(Vessel).order_by(Vessel.name)))
+    rows = [
+        {
+            "name": vessel.name,
+            "registration": vessel.reg_number,
+            "license": vessel.license_number,
+            "expiry": vessel.license_expiry.isoformat(),
+            "port": vessel.home_port,
+            "gear": vessel.gear_type,
+        }
+        for vessel in vessels
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="vessels.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "vessels",
+            "current_user": current_user,
+            "vessels": rows,
+            "error": error,
+            "form_data": form_data or {},
+            "created": request.query_params.get("created"),
+        },
+        status_code=status_code,
+    )
+    _set_language_cookie(response, language)
+    return response
+
+
+def _render_merge_lots(
+    request: Request,
+    db: Session,
+    current_user: AuthenticatedHTMLUser,
+    *,
+    error: str | None = None,
+    status_code: int = status.HTTP_200_OK,
+) -> HTMLResponse:
+    language = _selected_language(request)
+    translations = get_translations(language)
+    statement = (
+        select(Species.name, Lot.id, Lot.lot_code, Lot.current_weight)
+        .join(Lot, Lot.species_id == Species.id)
+        .where(Lot.status == "Available")
+        .order_by(Species.name, Lot.lot_code)
+    )
+    grouped_lots: dict[str, list[dict[str, str]]] = {}
+    for species_name, lot_id, lot_code, weight in db.execute(statement).all():
+        grouped_lots.setdefault(species_name, []).append(
+            {
+                "id": str(lot_id),
+                "lot_code": lot_code,
+                "weight": f"{weight:,.2f}",
+            }
+        )
+    groups = [
+        {"species": species_name, "lots": lots}
+        for species_name, lots in grouped_lots.items()
+    ]
+    response = templates.TemplateResponse(
+        request=request,
+        name="merge_lots.html",
+        context={
+            "language": language,
+            "t": translations,
+            "active_page": "lots",
+            "current_user": current_user,
+            "groups": groups,
+            "error": error,
         },
         status_code=status_code,
     )
@@ -299,9 +392,14 @@ def login_page(request: Request) -> HTMLResponse:
 def catch_form(
     request: Request,
     db: Session = Depends(get_db),
-    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render the browser form used to record a catch and create its initial lot."""
+    if current_user.role != "Officer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Officer role required",
+        )
     return _render_catch_form(
         request,
         db,
@@ -326,9 +424,14 @@ def create_catch_from_form(
     landing_site_id: str = Form(...),
     officer_id: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Save a catch and corresponding available lot from the HTML form."""
+    if current_user.role != "Officer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Officer role required",
+        )
     form_data = {
         "vessel_id": vessel_id,
         "species_id": species_id,
@@ -425,15 +528,101 @@ def create_catch_from_form(
     return RedirectResponse(url="/catches?success=catch", status_code=303)
 
 
+@app.get(
+    "/lots/merge-selection",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def merge_lots_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> HTMLResponse:
+    if current_user.role not in {"Admin", "Processor"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Processor role required",
+        )
+    return _render_merge_lots(request, db, current_user)
+
+
+@app.post(
+    "/lots/merge-form",
+    response_class=HTMLResponse,
+    response_model=None,
+    include_in_schema=False,
+)
+def merge_lots_from_form(
+    request: Request,
+    lot_ids: list[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    if current_user.role not in {"Admin", "Processor"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Processor role required",
+        )
+    try:
+        selected_lot_ids = [UUID(lot_id) for lot_id in lot_ids]
+    except ValueError:
+        return _render_merge_lots(
+            request,
+            db,
+            current_user,
+            error="Select valid lots to merge.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        LotService(db).merge_lots(
+            selected_lot_ids,
+            actor_id=current_user.id,
+        )
+    except HTTPException as exc:
+        return _render_merge_lots(
+            request,
+            db,
+            current_user,
+            error=str(exc.detail),
+            status_code=exc.status_code,
+        )
+    return RedirectResponse(
+        url="/lots?merged=1",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 @app.get("/lots/{lot_id}", response_class=HTMLResponse, include_in_schema=False)
 def lot_detail_page(
     lot_id: UUID,
     request: Request,
     db: Session = Depends(get_db),
-    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render lot details and the split, temperature, and inspection forms."""
-    return _render_lot_detail(request, db, lot_id)
+    return _render_lot_detail(request, db, lot_id, current_user)
+
+
+@app.post(
+    "/lots/{lot_id}/recall",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+def recall_lot_from_form(
+    lot_id: UUID,
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    if current_user.role not in {"Admin", "Inspector"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or Inspector role required",
+        )
+    TraceabilityService(db).recall_lot(lot_id)
+    return RedirectResponse(
+        url=f"/lots/{lot_id}?success=recall",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @app.post(
@@ -452,6 +641,11 @@ def split_lot_from_form(
     current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Split a lot using comma- or newline-separated child weights."""
+    if current_user.role != "Processor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Processor role required",
+        )
     form_data = {
         "child_weights": child_weights,
         "loss_weight": loss_weight,
@@ -468,6 +662,7 @@ def split_lot_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error="Enter valid child weights and loss weight.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -486,6 +681,7 @@ def split_lot_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error=str(exc.detail),
             form_data=form_data,
             status_code=exc.status_code,
@@ -509,6 +705,11 @@ def record_processing_step(
     current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Record a supported processing operation and calculate its yield."""
+    if current_user.role != "Processor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Processor role required",
+        )
     form_data = {
         "step_type": step_type,
         "weight_in": weight_in,
@@ -519,6 +720,7 @@ def record_processing_step(
             request,
             db,
             lot_id,
+            current_user,
             error="Choose a valid processing step.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -544,6 +746,7 @@ def record_processing_step(
             request,
             db,
             lot_id,
+            current_user,
             error="Enter valid weights; weight out cannot exceed weight in.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -590,12 +793,27 @@ def log_temperature_from_form(
     lot_id: UUID,
     request: Request,
     temp_celsius: str = Form(...),
+    temperature_type: str = Form(...),
     location: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Record a temperature observation for a lot."""
-    form_data = {"temp_celsius": temp_celsius, "location": location}
+    form_data = {
+        "temp_celsius": temp_celsius,
+        "temperature_type": temperature_type,
+        "location": location,
+    }
+    if temperature_type not in {"Chilled", "Frozen"}:
+        return _render_lot_detail(
+            request,
+            db,
+            lot_id,
+            current_user,
+            error="Choose Chilled or Frozen storage.",
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     try:
         temperature = Decimal(temp_celsius)
         if (
@@ -610,6 +828,7 @@ def log_temperature_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error="Enter a valid temperature with no more than two decimal places.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -621,6 +840,7 @@ def log_temperature_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error="Location is required.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -635,8 +855,13 @@ def log_temperature_from_form(
             TemperatureLog(
                 lot_id=lot_id,
                 temp_celsius=temperature,
+                temperature_type=temperature_type,
                 location=cleaned_location,
-                is_breach=False,
+                is_breach=(
+                    temperature > Decimal("4")
+                    if temperature_type == "Chilled"
+                    else temperature > Decimal("-18")
+                ),
             )
         )
     return RedirectResponse(url=f"/lots/{lot_id}?success=temperature", status_code=303)
@@ -655,9 +880,14 @@ def inspect_lot_from_form(
     grade: str = Form(...),
     inspector_id: str = Form(...),
     db: Session = Depends(get_db),
-    _authenticated: AuthenticatedHTMLUser = Depends(require_html_user),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> Response:
     """Save an inspection result for a lot."""
+    if current_user.role != "Inspector":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inspector role required",
+        )
     form_data = {
         "result": result,
         "grade": grade,
@@ -668,6 +898,7 @@ def inspect_lot_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error="Choose a valid inspection result and grade.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -679,6 +910,7 @@ def inspect_lot_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error="Select an inspector from the list.",
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -732,6 +964,7 @@ def inspect_lot_from_form(
             request,
             db,
             lot_id,
+            current_user,
             error=validation_error,
             form_data=form_data,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -874,7 +1107,7 @@ def lots_page(
             "status": translations.get(
                 f"lot_status_{lot.status.lower()}", lot.status
             ),
-            "trace_url": f"/trace/{lot.lot_code}",
+            "trace_url": f"/trace?lot_code={quote(lot.lot_code, safe='')}",
             "detail_url": f"/lots/{lot.id}",
         }
         for lot, species_name in db.execute(statement).all()
@@ -906,33 +1139,76 @@ def vessels_page(
     current_user: AuthenticatedHTMLUser = Depends(require_html_user),
 ) -> HTMLResponse:
     """Render the vessel registry for authenticated staff."""
-    language = _selected_language(request)
-    translations = get_translations(language)
-    vessels = list(db.scalars(select(Vessel).order_by(Vessel.name)))
-    rows = [
-        {
-            "name": vessel.name,
-            "registration": vessel.reg_number,
-            "license": vessel.license_number,
-            "expiry": vessel.license_expiry.isoformat(),
-            "port": vessel.home_port,
-            "gear": vessel.gear_type,
-        }
-        for vessel in vessels
-    ]
-    response = templates.TemplateResponse(
-        request=request,
-        name="vessels.html",
-        context={
-            "language": language,
-            "t": translations,
-            "active_page": "vessels",
-            "current_user": current_user,
-            "vessels": rows,
-        },
+    return _render_vessels(request, db, current_user)
+
+
+@app.post(
+    "/vessels/form",
+    response_class=HTMLResponse,
+    response_model=None,
+    include_in_schema=False,
+)
+def create_vessel_from_form(
+    request: Request,
+    name: str = Form(...),
+    reg_number: str = Form(...),
+    license_number: str = Form(...),
+    license_expiry: str = Form(...),
+    owner_name: str = Form(...),
+    home_port: str = Form(...),
+    gear_type: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedHTMLUser = Depends(require_html_user),
+) -> Response:
+    if current_user.role != "Admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    form_data = {
+        "name": name,
+        "reg_number": reg_number,
+        "license_number": license_number,
+        "license_expiry": license_expiry,
+        "owner_name": owner_name,
+        "home_port": home_port,
+        "gear_type": gear_type,
+    }
+    try:
+        vessel_data = VesselCreate.model_validate(
+            {
+                key: value.strip()
+                for key, value in form_data.items()
+            }
+        )
+    except ValidationError:
+        return _render_vessels(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "vessel_form_error"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        VesselService(db).create_vessel(vessel_data, current_user.id)
+    except IntegrityError:
+        return _render_vessels(
+            request,
+            db,
+            current_user,
+            error=get_translations(_selected_language(request))[
+                "vessel_numbers_unique"
+            ],
+            form_data=form_data,
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    return RedirectResponse(
+        url="/vessels?created=1",
+        status_code=status.HTTP_303_SEE_OTHER,
     )
-    _set_language_cookie(response, language)
-    return response
 
 
 @app.get(
@@ -1386,6 +1662,7 @@ def temperature_logs_page(
         {
             "lot": lot_code,
             "temperature": f"{log.temp_celsius} °C",
+            "temperature_type": log.temperature_type,
             "location": log.location,
             "recorded_at": log.recorded_at.isoformat(),
             "status": (
@@ -1411,6 +1688,7 @@ def temperature_logs_page(
             "columns": [
                 {"key": "lot", "label": translations["lot_id"]},
                 {"key": "temperature", "label": translations["temperature"]},
+                {"key": "temperature_type", "label": "Storage type"},
                 {"key": "location", "label": translations["location"]},
                 {"key": "recorded_at", "label": translations["recorded_at"]},
                 {"key": "status", "label": translations["status"]},
