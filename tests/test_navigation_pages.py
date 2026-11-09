@@ -24,9 +24,9 @@ class QueryRows:
 def test_sidebar_destinations_have_get_routes():
     from pathlib import Path
 
-    base_template = Path(r"C:\fish\templates\base.html").read_text(
-        encoding="utf-8"
-    )
+    base_template = (
+        Path(__file__).resolve().parents[1] / "templates" / "base.html"
+    ).read_text(encoding="utf-8")
     destinations = set(
         re.findall(r'href="(/(?:[a-z-]+))"', base_template)
     )

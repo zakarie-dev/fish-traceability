@@ -96,7 +96,7 @@ Settings:
 | `JWT_SECRET` or `JWT_SECRET_KEY` | JWT signing secret; the `JWT_SECRET_KEY` name takes precedence |
 | `ALGORITHM` or `JWT_ALGORITHM` | JWT algorithm; the `JWT_ALGORITHM` name takes precedence |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Login token lifetime |
-| `PUBLIC_TRACE_BASE_URL` | Base URL encoded in printed QR labels and certificates |
+| `PUBLIC_BASE_URL` | Public site root used to build trace URLs in printed QR labels and certificates (for example `https://fish.example.org`) |
 
 ### 3. Create schema and demo accounts
 

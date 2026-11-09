@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters import MockPaymentAdapter, MockSMSAdapter, PaymentProvider
-from app.config import PUBLIC_TRACE_BASE_URL
+from app.config import PUBLIC_BASE_URL
 from app.database import get_db
 from app.dependencies import AuthenticatedHTMLUser, require_html_user
 from app.models import (
@@ -1005,9 +1005,7 @@ def lot_label_page(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lot not found",
         )
-    trace_url = (
-        f"{PUBLIC_TRACE_BASE_URL.rstrip('/')}/{quote(lot.lot_code, safe='')}"
-    )
+    trace_url = f"{PUBLIC_BASE_URL}/trace/{quote(lot.lot_code, safe='')}"
     return templates.TemplateResponse(
         request=request,
         name="print_label.html",
@@ -1039,9 +1037,7 @@ def lot_label_qr(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Lot not found",
         )
-    trace_url = (
-        f"{PUBLIC_TRACE_BASE_URL.rstrip('/')}/{quote(lot.lot_code, safe='')}"
-    )
+    trace_url = f"{PUBLIC_BASE_URL}/trace/{quote(lot.lot_code, safe='')}"
     qr_image = qrcode.make(trace_url)
     output = BytesIO()
     qr_image.save(output, format="PNG")

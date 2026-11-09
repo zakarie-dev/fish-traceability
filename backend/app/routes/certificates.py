@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.config import PUBLIC_TRACE_BASE_URL
 from app.database import get_db
 from app.dependencies import AuthenticatedHTMLUser, require_html_user
 from app.services.audit_service import record_audit_event
@@ -28,7 +27,7 @@ def export_certificate(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Exporter role required",
         )
-    pdf = generate_certificate_pdf(db, consignment_id, PUBLIC_TRACE_BASE_URL)
+    pdf = generate_certificate_pdf(db, consignment_id)
     record_audit_event(
         db,
         user_id=current_user.id,

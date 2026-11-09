@@ -7,8 +7,8 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM") or os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-PUBLIC_TRACE_BASE_URL = os.getenv(
-    "PUBLIC_TRACE_BASE_URL", "http://localhost:8000/trace"
+PUBLIC_BASE_URL = os.getenv(
+    "PUBLIC_BASE_URL", "http://localhost:8000"
 ).rstrip("/")
 
 

@@ -702,8 +702,11 @@ def test_breach_requires_a_later_pass_before_export_and_creates_consignment(
         app.dependency_overrides.pop(require_html_user, None)
 
 
-def test_lot_qr_label_uses_trace_route(client_and_session):
+def test_lot_qr_label_uses_configured_public_base_url(
+    client_and_session, monkeypatch
+):
     client, test_session, ids = client_and_session
+    monkeypatch.setattr("app.main.PUBLIC_BASE_URL", "https://trace.example.test")
     with test_session.begin() as db:
         lot = Lot(
             lot_code="LOT-QR-1",
@@ -719,7 +722,8 @@ def test_lot_qr_label_uses_trace_route(client_and_session):
     page = client.get(f"/lots/{lot_id}/label")
     assert page.status_code == 200
     assert "/lots/" + str(lot_id) + "/label/qr.png" in page.text
-    assert "http://localhost:8000/trace/LOT-QR-1" in page.text
+    assert "https://trace.example.test/trace/LOT-QR-1" in page.text
+    assert "localhost" not in page.text
 
     image = client.get(f"/lots/{lot_id}/label/qr.png")
     assert image.status_code == 200

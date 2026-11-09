@@ -1,5 +1,7 @@
 from io import BytesIO
+import os
 from textwrap import wrap
+from urllib.parse import quote
 from uuid import UUID
 
 import qrcode
@@ -17,16 +19,12 @@ from app.repositories.lot_repository import LotRepository
 def generate_certificate_pdf(
     db: Session,
     consignment_id: UUID,
-    public_trace_base_url: str,
 ) -> bytes:
     """Generate a PDF certificate containing consignment and lot provenance.
 
     Args:
         db: SQLAlchemy session used to load consignment, lot, and vessel data.
         consignment_id: UUID of the consignment to certify.
-        public_trace_base_url: Public trace endpoint base, such as
-            ``https://example.org/trace``. The first lot's public trace URL is
-            encoded in the certificate QR code.
 
     Returns:
         The generated PDF document as bytes.
@@ -111,7 +109,8 @@ def generate_certificate_pdf(
             document.drawString(left, y, line)
             y -= 15
 
-    trace_url = f"{public_trace_base_url.rstrip('/')}/{lots[0].lot_code}"
+    base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+    trace_url = f"{base_url}/trace/{quote(lots[0].lot_code, safe='')}"
     qr_image = qrcode.make(trace_url)
     qr_bytes = BytesIO()
     qr_image.save(qr_bytes, format="PNG")
